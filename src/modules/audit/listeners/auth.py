@@ -60,6 +60,11 @@ async def on_auth_email_already_registered(
         event_type=LogAction.USER_REGISTERED,
         severity=LogSeverity.ERROR,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'email': event.email, 'name': event.name},
     )
@@ -79,6 +84,9 @@ async def on_auth_registration_failed(
         message='User creation failed due to duplicate entry or constraint error.',
         event_type=LogAction.USER_REGISTERED,
         severity=LogSeverity.CRITICAL,
+        entity_type="user",
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'email': event.email, 'error': event.error},
     )
@@ -99,6 +107,10 @@ async def on_auth_email_not_found(
         event_type=LogAction.AUTH_LOGIN_FAILED,
         severity=LogSeverity.ERROR,
         user_id=None,
+        actor_id=None,
+        entity_type="user",
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'reason': 'EMAIL_NOT_FOUND', 'email': event.email},
     )
@@ -119,6 +131,11 @@ async def on_auth_invalid_password(
         event_type=LogAction.AUTH_LOGIN_FAILED,
         severity=LogSeverity.ERROR,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'reason': 'INVALID_PASSWORD', 'email': event.email},
     )
@@ -139,6 +156,11 @@ async def on_auth_inactive_user_rejected(
         event_type=LogAction.AUTH_LOGIN_FAILED,
         severity=LogSeverity.CRITICAL,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={
             'reason': 'ACCOUNT_DEACTIVATED',
@@ -163,6 +185,10 @@ async def on_auth_refresh_session_not_found(
         event_type=LogAction.AUTH_TOKEN_REVOKED,
         severity=LogSeverity.ERROR,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'reason': 'SESSION_NOT_FOUND'},
     )
@@ -183,6 +209,11 @@ async def on_auth_refresh_session_expired(
         event_type=LogAction.AUTH_TOKEN_REVOKED,
         severity=LogSeverity.ERROR,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        entity_id=str(event.session_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
         extra_data={'session_id': event.session_id, 'reason': 'SESSION_EXPIRED'},
     )
@@ -203,6 +234,11 @@ async def on_auth_token_replay_detected(
         event_type=LogAction.AUTH_TOKEN_REVOKED,
         severity=LogSeverity.CRITICAL,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        entity_id=str(event.session_id),
+        domain_id="global",
+        outcome="CRITICAL",
         ctx=event.audit_ctx,
         extra_data={
             'session_id': event.session_id,
@@ -229,6 +265,11 @@ async def on_auth_user_registered(
         session=session,
         event_type=LogAction.USER_REGISTERED,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
         extra_data={'email': event.email, 'name': event.name},
     )
@@ -249,6 +290,11 @@ async def on_auth_logged_in(
         session=session,
         event_type=LogAction.AUTH_LOGIN_SUCCESS,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 
@@ -268,6 +314,10 @@ async def on_auth_token_pair_issued(
         session=session,
         event_type=LogAction.CUSTOM,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 
@@ -287,6 +337,10 @@ async def on_auth_token_rotated(
         session=session,
         event_type=LogAction.AUTH_TOKEN_ROTATED,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 
@@ -306,6 +360,10 @@ async def on_auth_logged_out(
         session=session,
         event_type=LogAction.AUTH_LOGOUT,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 
@@ -325,6 +383,10 @@ async def on_auth_all_sessions_revoked(
         session=session,
         event_type=LogAction.AUTH_TOKEN_REVOKED,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="refresh_session",
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 
@@ -344,6 +406,11 @@ async def on_auth_password_changed(
         session=session,
         event_type=LogAction.AUTH_PASSWORD_CHANGED,
         user_id=str(event.user_id),
+        actor_id=str(event.user_id),
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SUCCESS",
         ctx=event.audit_ctx,
     )
 

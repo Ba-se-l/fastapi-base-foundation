@@ -11,7 +11,7 @@
     <a href="https://casbin.org/"><img src="https://img.shields.io/badge/PyCasbin-RBAC_Engine-0052CC.svg?style=flat" alt="PyCasbin RBAC"></a>
     <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/Toolchain-uv-DE5FE9.svg?style=flat" alt="uv Package Manager"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat" alt="MIT License"></a>
-    <img src="https://img.shields.io/badge/Tests-64%2F64_Passing-brightgreen.svg?style=flat" alt="64/64 Tests Passing">
+    <img src="https://img.shields.io/badge/Tests-82%2F82_Passing-brightgreen.svg?style=flat" alt="82/82 Tests Passing">
   </p>
 
   <p>
@@ -351,7 +351,32 @@ uv run pytest tests/test_password_change.py -v
 
 # Run audit logging and telemetry tests
 uv run pytest tests/test_audit_logging.py -v
-```
+
+# Run full 15/15 Enterprise Release Gate verification suite (RG-01 to RG-15)
+uv run pytest tests/test_release_gate.py -v
+`
+
+### 🛡️ Enterprise Security Hardening & Release Gate Contracts
+
+| Gate ID | Invariant & Architectural Contract | Defense & Standard |
+|---|---|---|
+| **RG-01** | Single unified Alembic head with zero schema drift | Idempotent migrations + autogenerate check |
+| **RG-02** | Function-scoped transaction boundary (SessionDep) | Eliminates uncommitted response leakage (F01) |
+| **RG-03** | Strict JWT profiles (SubjectIntStr, id, sec_ver) | Uniform 401 Unauthorized responses (F02) |
+| **RG-04** | Transactional audit file commit hooks (fter_commit) | Rolled back transactions never write success logs (F03) |
+| **RG-05** | Refresh token carries and enforces actual security_version | Prevents token reuse across version upgrades (F04, P07) |
+| **RG-06** | Immediate access & refresh token revocation on logout | Smart device isolation preserves other sessions (P01) |
+| **RG-07** | Ancestor token logout revokes entire lineage family | Mitigates stale ancestor token retention (P02) |
+| **RG-08** | Atomic CAS replay detection revokes family immediately | RFC 9700 §4.14.2 token replay protection (P03) |
+| **RG-09** | Purge preserves unexpired revoked tombstones | Retains cryptographic evidence for replay detection (P04) |
+| **RG-10** | Comprehensive auth lifecycle audit coverage | Correlates 
+equest_id, client IP, and outcomes (P05) |
+| **RG-11** | Append-only repository immutability enforcement | Audit records cannot be updated or deleted (P06) |
+| **RG-12** | User-scoped session family revocation | Eliminates cross-tenant session disruption (P08) |
+| **RG-13** | Constant-time async dummy password verification | Mitigates timing attacks on unregistered emails (P09) |
+| **RG-14** | Dual-party actor/target tracking with automated redaction | Redacts credentials, secrets, and auth tokens (P10) |
+| **RG-15** | Atomic admin governance lock (UPDATE ... WHERE role='admin') | Serializes deactivations & blocks last-admin lockout (P11) |
+``
 
 > 📘 **Test Documentation:** See [tests/README.md](tests/README.md) and [tests/README_AR.md](tests/README_AR.md) for detailed test scenarios, contract envelopes, and architectural verification steps.
 

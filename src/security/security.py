@@ -1,13 +1,15 @@
+import asyncio
 import uuid
-import jwt
 from datetime import datetime, timedelta, timezone
-from pwdlib import PasswordHash
 
+import jwt
+from pwdlib import PasswordHash
+from pydantic import ValidationError
 
 from ..exc import InvalidCredentialsException
-from ..share.enum import TokenType
-from ..share.schemas import TokenPayload
 from ..settings import settings
+from ..share.enum import TokenType
+from ..share.schemas import AccessTokenPayload, RefreshTokenPayload, TokenPayload
 
 ph = PasswordHash.recommended()
 
@@ -54,6 +56,31 @@ def verify_and_update(password: str, hashed_password: str) -> tuple[bool, str | 
     return ph.verify_and_update(password=password, hash=hashed_password)
 
 
+verify_and_update_password = verify_and_update
+
+
+async def hash_password_async(password: str) -> str:
+    """Asynchronously hashes a plaintext password off the main event loop."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Asynchronously verifies a password hash off the main event loop."""
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
+
+
+async def verify_and_update_password_async(
+    plain_password: str, hashed_password: str
+) -> tuple[bool, str | None]:
+    """Asynchronously verifies a password and upgrades its hash off the main event loop."""
+    return await asyncio.to_thread(verify_and_update, plain_password, hashed_password)
+
+
+async def verify_dummy_password_async(plain_password: str) -> None:
+    """Asynchronously computes a dummy password verification to equalize timing."""
+    await asyncio.to_thread(verify_password, plain_password, SECURITY_PASSWORD_HASH)
+
+
 def create_access_token(
     user_id: int,
     security_version: int = 1,
@@ -75,15 +102,16 @@ def create_access_token(
         expires_delta = timedelta(minutes=settings.access_token_expires_minutes)
 
     now = datetime.now(timezone.utc)
+    fid = family_id or uuid.uuid4().hex
 
-    payload = TokenPayload(
+    payload = AccessTokenPayload(
         sub=str(user_id),
         type=TokenType.ACCESS,
         jti=uuid.uuid4().hex,
         iat=now,
         sec_ver=security_version,
         exp=now + expires_delta,
-        fid=family_id,
+        fid=fid,
     )
 
     return jwt.encode(
@@ -95,6 +123,7 @@ def create_access_token(
 
 def create_refresh_token(
     user_id: int,
+    security_version: int = 1,
     family_id: str | None = None,
     jti: str | None = None,
 ) -> tuple[str, str]:
@@ -102,26 +131,32 @@ def create_refresh_token(
 
     Args:
         user_id: The primary key of the authenticated user.
+        security_version: Current credential/security version of the user.
         family_id: Optional session family lineage identifier.
         jti: Optional pre-assigned JWT ID string. If None, a random UUID hex is generated.
 
     Returns:
         A tuple of (encoded_jwt_refresh_token, jti_identifier).
     """
+    if isinstance(security_version, str) and family_id is None:
+        family_id = security_version
+        security_version = 1
+
     if jti is None:
         jti = uuid.uuid4().hex
 
     now = datetime.now(timezone.utc)
     expires_delta = timedelta(days=settings.refresh_token_expires_days)
+    fid = family_id or uuid.uuid4().hex
 
-    payload = TokenPayload(
+    payload = RefreshTokenPayload(
         sub=str(user_id),
         type=TokenType.REFRESH,
         jti=jti,
         iat=now,
-        sec_ver=1,
+        sec_ver=security_version,
         exp=now + expires_delta,
-        fid=family_id,
+        fid=fid,
     )
 
     return jwt.encode(
@@ -131,65 +166,55 @@ def create_refresh_token(
     ), jti
 
 
-def decode_access_token(token: str) -> TokenPayload:
+def decode_access_token(token: str) -> AccessTokenPayload:
     """Decodes and validates a signed JWT access token.
 
     Args:
         token: The raw encoded JWT access token string.
 
     Returns:
-        The validated TokenPayload schema.
+        The validated AccessTokenPayload schema.
 
     Raises:
-        InvalidCredentialsException: If the token signature is invalid, expired, or not an ACCESS token.
+        InvalidCredentialsException: If the token signature is invalid, expired, missing claims, or not an ACCESS token.
     """
     try:
-        payload = TokenPayload.model_validate(
-            jwt.decode(
-                jwt=token,
-                key=settings.access_secret_key,
-                algorithms=[settings.algorithm],
-            )
+        raw_claims = jwt.decode(
+            jwt=token,
+            key=settings.access_secret_key,
+            algorithms=[settings.algorithm],
+            options={"require": ["sub", "exp", "iat", "type", "sec_ver", "fid"]},
         )
-
+        payload = AccessTokenPayload.model_validate(raw_claims)
         if payload.type != TokenType.ACCESS:
             raise InvalidCredentialsException()
-
         return payload
-
-    except jwt.PyJWTError as exc:
+    except (jwt.PyJWTError, ValidationError, ValueError, TypeError) as exc:
         raise InvalidCredentialsException() from exc
 
 
-def decode_refresh_token(token: str) -> TokenPayload:
+def decode_refresh_token(token: str) -> RefreshTokenPayload:
     """Decodes and validates a signed JWT refresh token.
 
     Args:
         token: The raw encoded JWT refresh token string.
 
     Returns:
-        The validated TokenPayload schema containing the JTI.
+        The validated RefreshTokenPayload schema containing the JTI.
 
     Raises:
-        InvalidCredentialsException: If the token signature is invalid, expired, lacks JTI, or not REFRESH.
+        InvalidCredentialsException: If the token signature is invalid, expired, missing claims, lacks JTI, or not REFRESH.
     """
     try:
-        payload = TokenPayload.model_validate(
-            jwt.decode(
-                jwt=token,
-                key=settings.refresh_secret_key,
-                algorithms=[settings.algorithm],
-            )
+        raw_claims = jwt.decode(
+            jwt=token,
+            key=settings.refresh_secret_key,
+            algorithms=[settings.algorithm],
+            options={"require": ["sub", "exp", "iat", "type", "sec_ver", "fid", "jti"]},
         )
-
-        if payload.jti is None:
-            raise InvalidCredentialsException()
-
+        payload = RefreshTokenPayload.model_validate(raw_claims)
         if payload.type != TokenType.REFRESH:
             raise InvalidCredentialsException()
-
         return payload
-
-    except jwt.PyJWTError as exc:
+    except (jwt.PyJWTError, ValidationError, ValueError, TypeError) as exc:
         raise InvalidCredentialsException() from exc
-    

@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exc import AccessDeniedException
+from src.modules.auth.repo import RefreshSessionRepository
 from src.security import AuthorizationService
 from src.share import (
     Action,
@@ -199,6 +200,18 @@ async def update_user(
     # 4. Apply updates with pre-update snapshot
     update_dict = schema.model_dump(exclude_unset=True)
     if update_dict:
+        # P11 Governance check: If target is active admin and change deactivates or demotes them
+        is_demoting = schema.role is not None and schema.role != Roles.ADMIN and user.role == Roles.ADMIN
+        is_deactivating = update_dict.get('is_active') is False and user.is_active is True
+        if user.role == Roles.ADMIN and user.is_active and (is_demoting or is_deactivating):
+            active_admins = await user_repo.acquire_admin_governance_lock_and_count()
+            if active_admins <= 1:
+                raise AccessDeniedException('Cannot deactivate or demote the last remaining active administrator.')
+
+        if is_deactivating:
+            update_dict['security_version'] = user.security_version + 1
+            await RefreshSessionRepository(session=session).revoke_all_for_user(user.id)
+
         old_state = {k: getattr(user, k, None) for k in update_dict}
         user = await user_repo.update(instance=user, update_dict=update_dict)
         await session.flush()
@@ -207,6 +220,7 @@ async def update_user(
             event=UserUpdated(
                 audit_ctx=audit_ctx,
                 user_id=user_id,
+                actor_id=updater.id,
                 changes=get_extra_dict_for_updates(update_dict=update_dict, old_state=old_state),
             ),
             session=session,
@@ -217,6 +231,7 @@ async def update_user(
         event=UserUpdateSkipped(
             audit_ctx=audit_ctx,
             user_id=user_id,
+            actor_id=updater.id,
         )
     )
     return user
@@ -226,6 +241,7 @@ async def deactivate_user(
     user_id: int,
     session: AsyncSession,
     audit_ctx: AuditContext | None = None,
+    actor_id: str | int | None = None,
 ) -> User:
     """Deactivates a user account (soft deactivation).
 
@@ -233,22 +249,36 @@ async def deactivate_user(
         user_id: Integer primary key of the user to deactivate.
         session: Active async database session.
         audit_ctx: Optional audit context.
+        actor_id: Optional actor identifier performing the deactivation.
 
     Returns:
         The deactivated User entity.
 
     Raises:
+        AccessDeniedException: If target is the last active administrator.
         UserNotFoundException: If the user does not exist.
     """
     user = await _get_user_by_id(user_id=user_id, session=session, ctx=audit_ctx)
     user_repo = UserRepository(session=session)
-    user = await user_repo.update(instance=user, update_dict={'is_active': False})
+
+    # P11 Governance check: block deactivating last admin
+    if user.role == Roles.ADMIN and user.is_active:
+        active_admins = await user_repo.acquire_admin_governance_lock_and_count()
+        if active_admins <= 1:
+            raise AccessDeniedException('Cannot deactivate the last remaining active administrator.')
+
+    user = await user_repo.update(
+        instance=user,
+        update_dict={'is_active': False, 'security_version': user.security_version + 1},
+    )
+    await RefreshSessionRepository(session=session).revoke_all_for_user(user.id)
     await session.flush()
 
     await event_bus.publish(
         event=UserDeactivated(
             audit_ctx=audit_ctx,
             user_id=user_id,
+            actor_id=actor_id,
         ),
         session=session,
     )

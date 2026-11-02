@@ -1,8 +1,9 @@
-from typing_extensions import TypedDict
-from typing import Any
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pydantic import BaseModel as Base
+from typing import Annotated, Literal
+from dataclasses import dataclass, field
+from pydantic import AfterValidator, BaseModel, Field
+from typing_extensions import TypedDict
+
 from .enum import TokenType
 
 
@@ -23,21 +24,56 @@ _HTTP_ERROR_CODE_MAP: dict[int, str] = {
     503: "SERVICE_UNAVAILABLE",
     504: "GATEWAY_TIMEOUT",
 }
-    
-class TokenPayload(Base):
-    sub: str 
-    type: TokenType
-    jti: str | None = None
-    iat: datetime
-    sec_ver: int
+
+
+def _validate_positive_int_subject(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Token subject 'sub' must be a string")
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError("Token subject 'sub' must represent a valid integer") from exc
+    if parsed <= 0:
+        raise ValueError("Token subject 'sub' must be a positive integer")
+    return value
+
+
+SubjectIntStr = Annotated[str, AfterValidator(_validate_positive_int_subject)]
+NonEmptyClaimStr = Annotated[str, Field(min_length=1, max_length=128)]
+
+
+class TokenPayload(BaseModel):
+    sub: SubjectIntStr
     exp: datetime
+    iat: datetime
+    type: TokenType | str
+    jti: str | None = None
     fid: str | None = None
+    sec_ver: Annotated[int, Field(ge=1)] = 1
+
+    @property
+    def user_id(self) -> int:
+        return int(self.sub)
 
 
-class TokenResponse(Base):
+class AccessTokenPayload(TokenPayload):
+    type: Literal["access"] | Literal[TokenType.ACCESS] = TokenType.ACCESS
+    fid: NonEmptyClaimStr
+    sec_ver: Annotated[int, Field(ge=1)]
+
+
+class RefreshTokenPayload(TokenPayload):
+    type: Literal["refresh"] | Literal[TokenType.REFRESH] = TokenType.REFRESH
+    jti: NonEmptyClaimStr
+    fid: NonEmptyClaimStr
+    sec_ver: Annotated[int, Field(ge=1)]
+
+
+class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = 'Bearer'
+
 
 @dataclass(frozen=True, slots=True)
 class AuditContext:

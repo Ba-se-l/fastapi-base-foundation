@@ -63,6 +63,9 @@ class UserUpdated(DomainEvent):
     user_id: int
     """Identifier of the modified user."""
 
+    actor_id: str | int | None = None
+    """Identifier of the actor executing the update."""
+
     changes: Mapping[str, Any] = field(default_factory=dict)
     """Field-level diff in the form ``{field: {"old": ..., "new": ...}}``."""
 
@@ -74,6 +77,9 @@ class UserUpdateSkipped(DomainEvent):
     user_id: int
     """Identifier of the targeted user."""
 
+    actor_id: str | int | None = None
+    """Identifier of the actor initiating the skipped request."""
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserDeactivated(DomainEvent):
@@ -81,3 +87,6 @@ class UserDeactivated(DomainEvent):
 
     user_id: int
     """Identifier of the deactivated user."""
+
+    actor_id: str | int | None = None
+    """Identifier of the actor performing deactivation."""

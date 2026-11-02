@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_session
-from src.database import get_session
+from src.database import SessionDep
 from src.modules.auth.dependencies import get_current_user, require_permission, require_role
 from src.settings import settings
 from src.share import (
@@ -45,7 +43,7 @@ async def get_my_profile(
 )
 async def list_users_endpoint(
     pagination: PaginationParams = Depends(),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     _: User = Depends(require_permission(resource=Resource.USERS, action=Action.READ)),
 ) -> PaginatedResponse[UserResponse]:
     """Retrieves a paginated list of users."""
@@ -74,7 +72,7 @@ async def list_users_endpoint(
 async def get_user_endpoint(
     user_id: int,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     audit_ctx: AuditContext = Depends(get_audit_context)
 ) -> UserResponse:
     """Retrieves user by ID with authorization check."""
@@ -98,7 +96,7 @@ async def update_user_endpoint(
     user_id: int,
     request: UserUpdate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     audit_ctx: AuditContext = Depends(get_audit_context)
 ) -> UserResponse:
     """Updates user information with privilege checks."""

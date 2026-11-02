@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -22,8 +23,11 @@ from src.security import (
     create_refresh_token,
     decode_refresh_token,
     hash_password,
+    hash_password_async,
     verify_password,
-    verify_and_update
+    verify_password_async,
+    verify_and_update,
+    verify_and_update_password_async,
 )
 from src.settings import settings
 from src.share import AuditContext, event_bus
@@ -49,6 +53,11 @@ from .events import (
 from .model import RefreshSession
 from .repo import RefreshSessionRepository
 from .schemas import ChangePasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
+
+
+async def verify_dummy_password_async(plain_password: str) -> None:
+    """Invokes dummy password verification off the event loop using local verify_password."""
+    await asyncio.to_thread(verify_password, plain_password, SECURITY_PASSWORD_HASH)
 
 
 async def _issue_token_pair(
@@ -85,6 +94,7 @@ async def _issue_token_pair(
     # Step 2: Generate refresh token + JTI with family claim fid
     refresh_token, jti = create_refresh_token(
         user_id=user.id,
+        security_version=user.security_version,
         family_id=family_id,
     )
 
@@ -125,7 +135,7 @@ async def register_user(
 
     Orchestration steps:
         1. Check if the email is already taken.
-        2. Hash the plain-text password.
+        2. Hash the plain-text password asynchronously.
         3. Create the ``User`` ORM instance.
         4. Persist via ``UserRepository.create``.
 
@@ -155,8 +165,8 @@ async def register_user(
         )
         raise UserAlreadyExistsException(field='email', value=schema.email)
 
-    # Step 2: Hash the password
-    hashed_password = hash_password(password=schema.password)
+    # Step 2: Hash the password asynchronously
+    hashed_password = await hash_password_async(password=schema.password)
 
     # Step 3: Build the ORM model
     instance = User(
@@ -222,7 +232,7 @@ async def login_user(
     # Step 1: Fetch user by email
     user = await user_repo.get_by_email(schema.email)
     if user is None:
-        verify_password(schema.password, SECURITY_PASSWORD_HASH)
+        await verify_dummy_password_async(schema.password)
 
         await event_bus.publish(
             event=AuthEmailNotFound(
@@ -233,8 +243,8 @@ async def login_user(
         raise InvalidCredentialsException()
 
     # Step 2: Verify the password
-    is_hashed_match, new_hash = verify_and_update(
-        password=schema.password,
+    is_hashed_match, new_hash = await verify_and_update_password_async(
+        plain_password=schema.password,
         hashed_password=user.hashed_password,
     )
     if not is_hashed_match:
@@ -247,12 +257,11 @@ async def login_user(
         )
         raise InvalidCredentialsException()
 
-
-    if new_hash is not None:
+    if new_hash:
         user.hashed_password = new_hash
         await session.flush()
 
-    # Step 3: Verify the account is active
+    # Step 3: Check active status
     if not user.is_active:
         await event_bus.publish(
             event=AuthInactiveUserRejected(
@@ -298,13 +307,14 @@ async def logout(
     """
     payload = decode_refresh_token(token=refresh_token_str)
     jti = payload.jti
-    token_user_id = int(payload.sub)
+    token_user_id = payload.user_id
 
     refresh_repo = RefreshSessionRepository(session=session)
     existing_session = await refresh_repo.get_by_jti(jti=jti)
     if existing_session is not None:
         if existing_session.user_id != token_user_id:
             raise InvalidCredentialsException()
+        # Always revoke the whole family, even if existing_session was already revoked/rotated (P02)
         await refresh_repo.revoke_family(
             family_id=existing_session.family_id,
             user_id=existing_session.user_id,
@@ -391,7 +401,7 @@ async def refresh_token(
     """
     # Step 1: Decode the refresh token
     payload = decode_refresh_token(token=schema.refresh_token)
-    user_id = int(payload.sub)
+    user_id = payload.user_id
     jti = payload.jti
 
     # Step 2: Look up the session and user
@@ -432,6 +442,12 @@ async def refresh_token(
         raise TokenRevokedException()
 
     if existing_session.user_id != user_id:
+        raise TokenRevokedException()
+
+    if existing_session.family_id != payload.fid:
+        raise TokenRevokedException()
+
+    if payload.sec_ver != user.security_version:
         raise TokenRevokedException()
 
     expires_at = existing_session.expires_at
@@ -489,7 +505,6 @@ async def refresh_token(
     )
 
 
-
 async def change_password(
     user: User,
     schema: ChangePasswordRequest,
@@ -513,12 +528,15 @@ async def change_password(
     session_repo = RefreshSessionRepository(session=session)
 
     # Step 1: Verify old password
-    is_password_valid = verify_password(password=schema.old_password, hashed_password=user.hashed_password)
+    is_password_valid = await verify_password_async(
+        plain_password=schema.old_password,
+        hashed_password=user.hashed_password,
+    )
     if not is_password_valid:
         raise InvalidCredentialsException()
 
     # Step 2: Hash and set new password, increment security version
-    user.hashed_password = hash_password(schema.new_password)
+    user.hashed_password = await hash_password_async(schema.new_password)
     user.security_version += 1
     await session.flush()
 

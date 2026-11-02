@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_session
+from src.database import SessionDep
 from src.modules.auth.dependencies import require_permission, require_role
 from src.modules.user.model import User
 from src.settings import settings
@@ -30,15 +29,25 @@ router = APIRouter(prefix=f"{settings.api_prefix}/audit", tags=['Audit & Logging
 async def list_audit_logs_endpoint(
     pagination: PaginationParams = Depends(),
     user_id: str | None = Query(None, description='Filter by user identifier'),
+    actor_id: str | None = Query(None, description='Filter by actor identifier'),
+    entity_type: str | None = Query(None, description='Filter by entity type'),
+    entity_id: str | None = Query(None, description='Filter by entity ID'),
+    domain_id: str | None = Query(None, description='Filter by domain ID'),
+    outcome: str | None = Query(None, description='Filter by outcome status'),
     event_type: str | None = Query(None, description='Filter by action tag'),
     severity: LogSeverity | None = Query(None, description='Filter by severity level'),
     search: str | None = Query(None, description='Search narrative message'),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     _: User = Depends(require_permission(resource=Resource.AUDIT, action=Action.READ)),
 ) -> PaginatedResponse[LogResponse]:
     """Retrieves filtered, paginated audit entries for administrators."""
     filter_params = LogQueryFilter(
         user_id=user_id,
+        actor_id=actor_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        domain_id=domain_id,
+        outcome=outcome,
         event_type=event_type,
         severity=severity,
         search=search,
@@ -69,7 +78,7 @@ async def list_audit_logs_endpoint(
 async def get_user_logs_endpoint(
     user_id: str,
     pagination: PaginationParams = Depends(),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     _: User = Depends(require_permission(resource=Resource.AUDIT, action=Action.READ)),
 ) -> PaginatedResponse[LogResponse]:
     """Retrieves paginated audit log entries for a single user."""
@@ -98,15 +107,25 @@ async def get_user_logs_endpoint(
 async def export_audit_logs_endpoint(
     format: ExportFormat = Query(ExportFormat.JSON, description='Output format (json, txt, md)'),
     user_id: str | None = Query(None, description='Filter export by user ID'),
+    actor_id: str | None = Query(None, description='Filter export by actor ID'),
+    entity_type: str | None = Query(None, description='Filter export by entity type'),
+    entity_id: str | None = Query(None, description='Filter export by entity ID'),
+    domain_id: str | None = Query(None, description='Filter export by domain ID'),
+    outcome: str | None = Query(None, description='Filter export by outcome'),
     event_type: str | None = Query(None, description='Filter export by event category'),
     severity: LogSeverity | None = Query(None, description='Filter export by severity'),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     _: User = Depends(require_permission(resource=Resource.AUDIT, action=Action.EXPORT)),
 ) -> Response:
     """Streams a serialized audit export file to the client."""
     params = LogExportParams(
         format=format,
         user_id=user_id,
+        actor_id=actor_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        domain_id=domain_id,
+        outcome=outcome,
         event_type=event_type,
         severity=severity,
     )
@@ -130,7 +149,7 @@ async def export_audit_logs_endpoint(
 async def export_user_logs_endpoint(
     user_id: str,
     format: ExportFormat = Query(ExportFormat.MARKDOWN, description='Output format (json, txt, md)'),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
     _: User = Depends(require_permission(resource=Resource.AUDIT, action=Action.EXPORT)),
 ) -> Response:
     """Exports a specific user audit report as a downloadable file."""

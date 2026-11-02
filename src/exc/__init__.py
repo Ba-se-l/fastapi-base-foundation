@@ -6,6 +6,7 @@ from .base import (
     PermissionDeniedException,
     InvalidCredentialsException,
     InactiveEntityException,
+    TokenExpiredException,
     TokenRevokedException,
     TokenStaleException,
 )
@@ -18,6 +19,7 @@ __all__ = (
     'PermissionDeniedException',
     'InvalidCredentialsException',
     'InactiveEntityException',
+    'TokenExpiredException',
     'TokenRevokedException',
     'TokenStaleException',
 )

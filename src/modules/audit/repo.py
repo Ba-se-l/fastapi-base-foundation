@@ -38,6 +38,26 @@ class AuditLogRepository(BaseRepository[AuditLog]):
             stmt = stmt.where(AuditLog.user_id == filter_params.user_id)
             count_stmt = count_stmt.where(AuditLog.user_id == filter_params.user_id)
 
+        if filter_params.actor_id:
+            stmt = stmt.where(AuditLog.actor_id == filter_params.actor_id)
+            count_stmt = count_stmt.where(AuditLog.actor_id == filter_params.actor_id)
+
+        if filter_params.entity_type:
+            stmt = stmt.where(AuditLog.entity_type == filter_params.entity_type)
+            count_stmt = count_stmt.where(AuditLog.entity_type == filter_params.entity_type)
+
+        if filter_params.entity_id:
+            stmt = stmt.where(AuditLog.entity_id == filter_params.entity_id)
+            count_stmt = count_stmt.where(AuditLog.entity_id == filter_params.entity_id)
+
+        if filter_params.domain_id:
+            stmt = stmt.where(AuditLog.domain_id == filter_params.domain_id)
+            count_stmt = count_stmt.where(AuditLog.domain_id == filter_params.domain_id)
+
+        if filter_params.outcome:
+            stmt = stmt.where(AuditLog.outcome == filter_params.outcome)
+            count_stmt = count_stmt.where(AuditLog.outcome == filter_params.outcome)
+
         if filter_params.event_type:
             stmt = stmt.where(AuditLog.event_type == filter_params.event_type)
             count_stmt = count_stmt.where(AuditLog.event_type == filter_params.event_type)
@@ -107,7 +127,6 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         """
         items, _ = await self.query_logs(filter_params, offset=0, limit=max_records)
         return items
-
 
     async def update(self, instance: AuditLog, update_dict: dict[str, Any]) -> AuditLog:
         """Prohibits updating audit logs to preserve historical audit trail integrity.

@@ -27,6 +27,30 @@ class LogEvent(BaseModel):
     user_id: str | None = None
     """Optional identifier of the actor (integer string, UUID, or system key)."""
 
+    actor_id: str | None = None
+    """Explicit actor identifier for dual-party action auditing."""
+
+    actor_snapshot: str | None = None
+    """Display name or identifier snapshot of the actor."""
+
+    entity_type: str | None = None
+    """Target entity category (e.g., 'user', 'refresh_session')."""
+
+    entity_id: str | None = None
+    """Target entity identifier."""
+
+    domain_id: str | None = "global"
+    """Security domain context identifier."""
+
+    outcome: str = "SUCCESS"
+    """Action outcome (e.g., 'SUCCESS', 'FAILURE', 'DENIED')."""
+
+    changes_payload: dict[str, Any] | None = None
+    """Redacted structured dictionary of field modifications."""
+
+    occurred_at: datetime | None = None
+    """Specific event occurrence timestamp, defaulting to now."""
+
     request_id: str | None = None
     """Correlation ID from HTTP request tracing."""
 
@@ -46,6 +70,48 @@ class LogEvent(BaseModel):
         if v is None:
             return None
         return str(v)[:AUDIT_USER_ID_MAX]
+
+    @field_validator('actor_id', mode='before')
+    @classmethod
+    def truncate_actor_id(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        return str(v)[:64]
+
+    @field_validator('actor_snapshot', mode='before')
+    @classmethod
+    def truncate_actor_snapshot(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        return str(v)[:255]
+
+    @field_validator('entity_type', mode='before')
+    @classmethod
+    def truncate_entity_type(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        return str(v)[:64]
+
+    @field_validator('entity_id', mode='before')
+    @classmethod
+    def truncate_entity_id(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        return str(v)[:64]
+
+    @field_validator('domain_id', mode='before')
+    @classmethod
+    def truncate_domain_id(cls, v: Any) -> str | None:
+        if v is None:
+            return "global"
+        return str(v)[:64]
+
+    @field_validator('outcome', mode='before')
+    @classmethod
+    def truncate_outcome(cls, v: Any) -> str:
+        if v is None:
+            return "SUCCESS"
+        return str(v)[:32]
 
     @field_validator('request_id', mode='before')
     @classmethod
@@ -72,7 +138,6 @@ class LogEvent(BaseModel):
         return str(v)[:AUDIT_USER_AGENT_MAX]
 
 
-
 class LogResponse(BaseModel):
     """Public serialization model for audit log entries."""
 
@@ -92,6 +157,30 @@ class LogResponse(BaseModel):
 
     user_id: str | None = None
     """Associated actor identifier."""
+
+    actor_id: str | None = None
+    """Explicit actor identifier."""
+
+    actor_snapshot: str | None = None
+    """Actor context snapshot."""
+
+    entity_type: str | None = None
+    """Target resource entity type."""
+
+    entity_id: str | None = None
+    """Target resource entity identifier."""
+
+    domain_id: str | None = "global"
+    """Security domain context."""
+
+    outcome: str = "SUCCESS"
+    """Action outcome."""
+
+    changes_payload: dict[str, Any] | None = None
+    """Structured diff of modifications."""
+
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """Timestamp of event occurrence."""
 
     request_id: str | None = None
     """Correlation tracing ID."""
@@ -114,6 +203,21 @@ class LogQueryFilter(BaseModel):
 
     user_id: str | None = None
     """Filter by specific actor identifier."""
+
+    actor_id: str | None = None
+    """Filter by explicit actor identifier."""
+
+    entity_type: str | None = None
+    """Filter by entity type."""
+
+    entity_id: str | None = None
+    """Filter by entity identifier."""
+
+    domain_id: str | None = None
+    """Filter by domain identifier."""
+
+    outcome: str | None = None
+    """Filter by outcome."""
 
     event_type: str | None = None
     """Filter by exact event category tag."""
@@ -139,6 +243,21 @@ class LogExportParams(BaseModel):
 
     user_id: str | None = None
     """Filter export to a specific user identifier."""
+
+    actor_id: str | None = None
+    """Filter export by explicit actor identifier."""
+
+    entity_type: str | None = None
+    """Filter export by entity type."""
+
+    entity_id: str | None = None
+    """Filter export by entity identifier."""
+
+    domain_id: str | None = None
+    """Filter export by domain identifier."""
+
+    outcome: str | None = None
+    """Filter export by outcome."""
 
     event_type: str | None = None
     """Filter export by event category tag."""

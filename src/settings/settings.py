@@ -1,6 +1,6 @@
 from enum import StrEnum
 import ipaddress
-from typing import Self
+from typing import Literal, Self
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings as Base, SettingsConfigDict
 
@@ -12,11 +12,12 @@ class Environment(StrEnum):
     TEST = 'test'
     STAGING = 'staging'
     PRO = 'pro'
+    PROD = 'prod'
 
 
 ALLOWED_JWT_ALGORITHMS: frozenset[str] = frozenset({'HS256', 'HS384', 'HS512'})
 JWT_SECRET_MIN_LENGTH: int = 32
-_HARDENED_ENVIRONMENTS: frozenset[Environment] = frozenset({Environment.STAGING, Environment.PRO})
+_HARDENED_ENVIRONMENTS: frozenset[Environment] = frozenset({Environment.STAGING, Environment.PRO, Environment.PROD})
 
 
 class Settings(Base):
@@ -55,7 +56,6 @@ class Settings(Base):
     # ————————————————————————————
 
 
-
     # ———————— JWT ————————
     access_secret_key: str = 'placeholder-change-it-in-production-mode'
     refresh_secret_key: str = 'placeholder-change-it-in-production-mode'
@@ -63,6 +63,19 @@ class Settings(Base):
 
     access_token_expires_minutes: int = 30
     refresh_token_expires_days: int = 30
+    # ————————————————————————————
+
+    # ———————— AUTH TRANSPORT & COOKIE ————————
+    auth_transport_mode: Literal["dual", "cookie", "json"] = "dual"
+    refresh_cookie_name: str = "refresh_token"
+    refresh_cookie_secure: bool | None = None
+    refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    refresh_cookie_path: str = "/api/v1/auth"
+    allow_public_registration: bool = True
+    rate_limit_enabled: bool = True
+    auth_rate_limit_requests: int = 10
+    auth_rate_limit_window_seconds: int = 60
+    authz_cache_ttl_seconds: int = 5
     # ————————————————————————————
 
     # ———————— AUDIT & LOGGING ————————
@@ -136,7 +149,7 @@ class Settings(Base):
                     f"FATAL: access_secret_key and refresh_secret_key must be distinct secrets in {self.environment} mode."
                 )
 
-        if self.environment == Environment.PRO:
+        if self.environment in (Environment.PRO, Environment.PROD):
             if self.echo:
                 raise ValueError(
                     "FATAL: `ECHO` must be False in production to prevent SQL statement leaks."

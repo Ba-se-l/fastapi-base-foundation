@@ -24,7 +24,7 @@ def validate_pass(pwd: str) -> str:
     """Validates that password meets enterprise security standards.
 
     Args:
-        v: Raw password string.
+        pwd: Raw password string.
 
     Returns:
         Validated password string.
@@ -115,8 +115,8 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Schema for token refresh request."""
 
-    refresh_token: str = Field(...)
-    """The current valid refresh token to exchange for new tokens."""
+    refresh_token: str | None = Field(default=None)
+    """The current valid refresh token to exchange for new tokens (optional when provided via Cookie)."""
 
 
 class ChangePasswordRequest(BaseModel):

@@ -133,13 +133,25 @@ class InvalidCredentialsException(AppException):
     Produces HTTP ``401 Unauthorized``.
     """
 
-    def __init__(self):
+    def __init__(self, message: str = "Invalid email or password."):
         """Initializes the invalid-credentials exception."""
         super().__init__(
-            message="Invalid email or password.",
+            message=message,
             error_code="INVALID_CREDENTIALS",
             status_code=401,
         )
+
+
+class TokenExpiredException(InvalidCredentialsException):
+    """Raised when a JWT access or refresh token has expired.
+
+    Produces HTTP ``401 Unauthorized``.
+    """
+
+    def __init__(self, message: str = "Token has expired."):
+        """Initializes the token-expired exception."""
+        super().__init__(message=message)
+        self.error_code = "TOKEN_EXPIRED"
 
 
 class TokenRevokedException(AppException):
@@ -148,10 +160,10 @@ class TokenRevokedException(AppException):
     Produces HTTP ``401 Unauthorized``.
     """
 
-    def __init__(self):
+    def __init__(self, message: str = "Refresh token has been revoked or is invalid."):
         """Initializes the token-revoked exception."""
         super().__init__(
-            message="Refresh token has been revoked or is invalid.",
+            message=message,
             error_code="TOKEN_REVOKED",
             status_code=401,
         )

@@ -8,7 +8,7 @@ from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_session
+from src.database import SessionDep, get_session
 from src.exc import (
     AccessDeniedException,
     PermissionDeniedException,
@@ -17,6 +17,7 @@ from src.exc import (
     TokenStaleException,
 )
 from src.security import decode_access_token, AuthorizationService
+from src.security.authorization import GLOBAL_DOMAIN
 from src.settings import settings
 from src.share import Roles, Resource, Action
 from .repo import RefreshSessionRepository
@@ -31,7 +32,7 @@ _oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f'{settings.api_prefix}/auth/logi
 
 async def get_current_user(
     token: str = Depends(_oauth2_scheme),
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep = None,
 ) -> User:
     """Extracts and validates the current authenticated user from the JWT token.
 
@@ -49,16 +50,13 @@ async def get_current_user(
             or if the associated session family has been revoked.
     """
     payload = decode_access_token(token=token)
-    user_id = payload.sub
-
-    if user_id is None:
-        raise InvalidCredentialsException()
+    user_id = payload.user_id
 
     # Lazy import to break module-level circular dependency
     from src.modules.user import UserRepository
 
     user_repo = UserRepository(session=session)
-    user = await user_repo.get_by_id(int(user_id))
+    user = await user_repo.get_by_id(user_id)
 
     if user is None:
         raise InvalidCredentialsException()
@@ -69,13 +67,13 @@ async def get_current_user(
     if payload.sec_ver != user.security_version:
         raise TokenStaleException()
 
-    # Fallback branch: _issue_token_pair always issues access tokens with a valid 'fid'.
-    # A token with fid=None can only arise from legacy sessions or synthetic test tokens.
-    if payload.fid is not None:
-        refresh_repo = RefreshSessionRepository(session=session)
-        is_active = await refresh_repo.is_family_active(family_id=payload.fid, user_id=user.id)
-        if not is_active:
-            raise TokenStaleException()
+    if not payload.fid:
+        raise InvalidCredentialsException("Token is missing session family binding")
+
+    refresh_repo = RefreshSessionRepository(session=session)
+    is_active = await refresh_repo.is_family_active(family_id=payload.fid, user_id=user.id)
+    if not is_active:
+        raise TokenStaleException()
 
     return user
 
@@ -124,14 +122,16 @@ def require_role(*allowed_roles: Roles) -> Callable[[User], Awaitable[User]]:
 
 def require_permission(
     *,
-    resource: Resource,
-    action: Action,
+    resource: Resource | str,
+    action: Action | str,
+    domain: str = GLOBAL_DOMAIN,
 ) -> Callable[[User], Awaitable[User]]:
     """Dependency factory enforcing a Casbin permission check on the current user.
 
     Args:
         resource: The protected resource namespace.
         action: The operation requested on the resource.
+        domain: The authorization domain (defaults to 'global').
 
     Returns:
         An async FastAPI dependency returning the authorized User instance.
@@ -139,6 +139,8 @@ def require_permission(
     Raises:
         AccessDeniedException: If neither the user's role nor specific subject grants permit the action.
     """
+    res_val = resource.value if hasattr(resource, 'value') else str(resource)
+    act_val = action.value if hasattr(action, 'value') else str(action)
 
     async def _permission_checker(
         current_user: User = Depends(get_current_user),
@@ -146,19 +148,21 @@ def require_permission(
         allowed = AuthorizationService.is_allowed(
             user_id=current_user.id,
             role=current_user.role.value,
-            resource=resource.value,
-            action=action.value,
+            resource=res_val,
+            action=act_val,
+            domain=domain,
         )
         if not allowed:
             logger.warning(
-                'Permission denied: user_id=%s role=%s resource=%s action=%s',
+                'Permission denied: user_id=%s role=%s resource=%s action=%s domain=%s',
                 current_user.id,
                 current_user.role.value,
-                resource.value,
-                action.value,
+                res_val,
+                act_val,
+                domain,
             )
             raise AccessDeniedException(
-                f"You do not have permission to perform '{action.value}' on '{resource.value}'."
+                f"You do not have permission to perform '{act_val}' on '{res_val}'."
             )
         return current_user
 

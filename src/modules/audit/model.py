@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, Text
+from sqlalchemy import DateTime, Index, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import BaseModel as Base
@@ -25,6 +25,14 @@ class AuditLog(Base):
         severity: Severity level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         message: Human-readable narrative description.
         user_id: Optional string identifier of the responsible actor.
+        actor_id: Explicit actor string identifier for dual-party action tracking.
+        actor_snapshot: Display name or context snapshot of the actor.
+        entity_type: Target resource category (e.g., 'user', 'refresh_session').
+        entity_id: Target resource identifier.
+        domain_id: Security domain partition (defaults to 'global').
+        outcome: Action outcome status ('SUCCESS', 'FAILURE', 'DENIED', etc.).
+        changes_payload: Redacted structured field-level diff.
+        occurred_at: Immutable timestamp of event occurrence.
         request_id: Optional correlation ID for tracing.
         ip_address: Optional client IPv4 or IPv6 address.
         user_agent: Optional client device or browser string.
@@ -40,6 +48,20 @@ class AuditLog(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
 
     user_id: Mapped[str | None] = mapped_column(String(AUDIT_USER_ID_MAX), nullable=True, index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    actor_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    domain_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default="global", server_default="global", index=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False, default="SUCCESS", server_default="SUCCESS", index=True)
+    changes_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
     request_id: Mapped[str | None] = mapped_column(String(AUDIT_REQUEST_ID_MAX), nullable=True, index=True)
     ip_address: Mapped[str | None] = mapped_column(String(AUDIT_IP_MAX), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(AUDIT_USER_AGENT_MAX), nullable=True)
@@ -62,5 +84,7 @@ class AuditLog(Base):
     def __repr__(self) -> str:
         return (
             f"AuditLog(id={self.id}, event_type='{self.event_type}', "
-            f"severity='{self.severity}', user_id='{self.user_id}')"
+            f"severity='{self.severity}', user_id='{self.user_id}', "
+            f"actor_id='{self.actor_id}', entity_type='{self.entity_type}', "
+            f"outcome='{self.outcome}')"
         )

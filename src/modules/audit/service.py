@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import AsyncSessionLocal
@@ -20,6 +21,39 @@ from .schemas import LogEvent, LogExportParams, LogQueryFilter, LogResponse
 logger = logging.getLogger(__name__)
 
 _background_tasks: set[asyncio.Task[None]] = set()
+
+SENSITIVE_KEY_PATTERN = re.compile(
+    r"(password|passwd|pwd|secret|token|jwt|cookie|authorization|api_key|credit_card|access_token|refresh_token|hashed_password)",
+    re.IGNORECASE,
+)
+
+
+def sanitize_audit_payload(payload: Any) -> Any:
+    """Recursively redacts sensitive keys matching credentials, tokens, or secrets."""
+    if isinstance(payload, dict):
+        return {
+            k: ("[REDACTED]" if isinstance(k, str) and SENSITIVE_KEY_PATTERN.search(k) else sanitize_audit_payload(v))
+            for k, v in payload.items()
+        }
+    elif isinstance(payload, list):
+        return [sanitize_audit_payload(item) for item in payload]
+    elif isinstance(payload, tuple):
+        return tuple(sanitize_audit_payload(item) for item in payload)
+    return payload
+
+
+def scrub_error_reason(error: Any) -> str:
+    """Removes SQL code or credential strings from error details to avoid forensic leaks."""
+    text = str(error)
+    cleaned = re.sub(
+        r"['\"][^'\"]*(?:password|token|secret)[^'\"]*['\"]",
+        "'[REDACTED]'",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if "SELECT " in cleaned or "INSERT INTO " in cleaned or "UPDATE " in cleaned:
+        cleaned = re.sub(r"\[SQL:.*?\]", "[SQL: REDACTED]", cleaned, flags=re.DOTALL)
+    return cleaned
 
 
 def _schedule_file_write(response: LogResponse) -> None:
@@ -77,6 +111,29 @@ def _append_to_file_sync(log_dir: str, log_resp: LogResponse) -> None:
         logger.warning('Failed to append audit log to disk: %s', exc)
 
 
+def _attach_post_commit_file_writer(session: AsyncSession, log_resp: LogResponse) -> None:
+    """Registers transactional hooks on the session to flush or discard pending file logs."""
+    if not settings.log_to_file or not settings.log_dir:
+        return
+
+    sync_sess = session.sync_session
+    queue: list[LogResponse] = sync_sess.info.setdefault("_pending_audit_files", [])
+    queue.append(log_resp)
+
+    if not sync_sess.info.get("_audit_commit_hook_registered"):
+        sync_sess.info["_audit_commit_hook_registered"] = True
+
+        @sa_event.listens_for(sync_sess, "after_commit")
+        def _flush_audit_files(s: Any) -> None:
+            items: list[LogResponse] = s.info.pop("_pending_audit_files", [])
+            for item in items:
+                _schedule_file_write(item)
+
+        @sa_event.listens_for(sync_sess, "after_rollback")
+        def _clear_audit_files(s: Any) -> None:
+            s.info.pop("_pending_audit_files", None)
+
+
 async def log_event(
     event: LogEvent,
     session: AsyncSession | None = None,
@@ -90,20 +147,35 @@ async def log_event(
     Returns:
         Persisted LogResponse representation.
     """
-
-    # Sanitize extra_data for database JSON serialization (datetime, Enum, UUID, etc.)
+    # Sanitize extra_data and changes_payload
     sanitized_extra_data = (
-        jsonable_encoder(event.extra_data, custom_encoder={Exception: str})
+        sanitize_audit_payload(
+            jsonable_encoder(event.extra_data, custom_encoder={Exception: str})
+        )
         if event.extra_data is not None
         else None
     )
 
-    # 1. Build and persist to database
+    sanitized_changes = (
+        sanitize_audit_payload(event.changes_payload)
+        if event.changes_payload is not None
+        else None
+    )
+
+    # 1. Build audit entity
     audit_instance = AuditLog(
         event_type=event.event_type,
         severity=event.severity.value,
         message=event.message,
         user_id=event.user_id,
+        actor_id=event.actor_id,
+        actor_snapshot=event.actor_snapshot,
+        entity_type=event.entity_type,
+        entity_id=event.entity_id,
+        domain_id=event.domain_id or "global",
+        outcome=event.outcome or "SUCCESS",
+        changes_payload=sanitized_changes,
+        occurred_at=event.occurred_at or datetime.now(timezone.utc),
         request_id=event.request_id,
         ip_address=event.ip_address,
         user_agent=event.user_agent,
@@ -113,25 +185,34 @@ async def log_event(
     if audit_instance.created_at is None:
         audit_instance.created_at = datetime.now(timezone.utc)
 
-    try:
-        if settings.log_to_db:
+    if settings.log_to_db:
+        try:
             if session is not None:
                 repo = AuditLogRepository(session=session)
                 audit_instance = await repo.create(audit_instance)
                 await session.flush()
+                log_response = LogResponse.model_validate(audit_instance)
+                _attach_post_commit_file_writer(session, log_response)
+                return log_response
             else:
                 async with AsyncSessionLocal() as audit_session:
                     repo = AuditLogRepository(session=audit_session)
                     audit_instance = await repo.create(audit_instance)
                     await audit_session.commit()
                     await audit_session.refresh(audit_instance)
-    finally:
+                    log_response = LogResponse.model_validate(audit_instance)
+                    if settings.log_to_file and settings.log_dir:
+                        _schedule_file_write(log_response)
+                    return log_response
+        except Exception:
+            if settings.log_to_file and settings.log_dir:
+                _schedule_file_write(LogResponse.model_validate(audit_instance))
+            raise
+    else:
+        log_response = LogResponse.model_validate(audit_instance)
         if settings.log_to_file and settings.log_dir:
-            response = LogResponse.model_validate(audit_instance)
-            _schedule_file_write(response)
-
-    return LogResponse.model_validate(audit_instance)
-
+            _schedule_file_write(log_response)
+        return log_response
 
 
 async def save_success_event(
@@ -140,6 +221,14 @@ async def save_success_event(
     session: AsyncSession | None = None,
     event_type: str | LogAction = LogAction.CUSTOM,
     user_id: str | None = None,
+    actor_id: str | None = None,
+    actor_snapshot: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    domain_id: str | None = "global",
+    outcome: str = "SUCCESS",
+    changes_payload: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
     ctx: AuditContext | None = None,
     request_id: str | None = None,
     ip_address: str | None = None,
@@ -153,6 +242,14 @@ async def save_success_event(
         severity=LogSeverity.INFO,
         message=message,
         user_id=user_id,
+        actor_id=actor_id,
+        actor_snapshot=actor_snapshot,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        domain_id=domain_id,
+        outcome=outcome,
+        changes_payload=changes_payload,
+        occurred_at=occurred_at,
         request_id=request_id or (ctx.request_id if ctx else None),
         ip_address=ip_address or (ctx.ip_address if ctx else None),
         user_agent=user_agent or (ctx.user_agent if ctx else None),
@@ -168,6 +265,14 @@ async def save_failed_event(
     event_type: str | LogAction = LogAction.SYSTEM_ERROR,
     severity: LogSeverity = LogSeverity.ERROR,
     user_id: str | None = None,
+    actor_id: str | None = None,
+    actor_snapshot: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    domain_id: str | None = "global",
+    outcome: str = "FAILURE",
+    changes_payload: dict[str, Any] | None = None,
+    occurred_at: datetime | None = None,
     ctx: AuditContext | None = None,
     request_id: str | None = None,
     ip_address: str | None = None,
@@ -181,6 +286,14 @@ async def save_failed_event(
         severity=severity,
         message=message,
         user_id=user_id,
+        actor_id=actor_id,
+        actor_snapshot=actor_snapshot,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        domain_id=domain_id,
+        outcome=outcome,
+        changes_payload=changes_payload,
+        occurred_at=occurred_at,
         request_id=request_id or (ctx.request_id if ctx else None),
         ip_address=ip_address or (ctx.ip_address if ctx else None),
         user_agent=user_agent or (ctx.user_agent if ctx else None),
@@ -233,6 +346,11 @@ async def export_audit_logs(
     """
     filter_params = LogQueryFilter(
         user_id=params.user_id,
+        actor_id=params.actor_id,
+        entity_type=params.entity_type,
+        entity_id=params.entity_id,
+        domain_id=params.domain_id,
+        outcome=params.outcome,
         event_type=params.event_type,
         severity=params.severity,
         from_date=params.from_date,

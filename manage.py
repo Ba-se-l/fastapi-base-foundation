@@ -83,7 +83,6 @@ async def handle_create_admin(args: argparse.Namespace) -> None:
             print("Error: Passwords do not match.", file=sys.stderr)
             sys.exit(1)
 
-
     try:
         validated = RegisterRequest(
             name=args.name,
@@ -140,14 +139,15 @@ async def handle_grant(args: argparse.Namespace) -> None:
     validate_role_name(args.role)
     validate_resource(args.resource)
     validate_action(args.action)
+    domain = getattr(args, "domain", "global")
 
     enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
-    if enforcer.has_policy(args.role, args.resource, args.action):
-        print(f"Policy already exists: ({args.role}, {args.resource}, {args.action}).")
+    if enforcer.has_policy(args.role, domain, args.resource, args.action):
+        print(f"Policy already exists: ({args.role}, {domain}, {args.resource}, {args.action}).")
         return
 
-    await enforcer.add_policy(args.role, args.resource, args.action)
-    print(f"Successfully granted: ({args.role}, {args.resource}, {args.action}).")
+    await enforcer.add_policy(args.role, domain, args.resource, args.action)
+    print(f"Successfully granted: ({args.role}, {domain}, {args.resource}, {args.action}).")
 
 
 async def handle_revoke(args: argparse.Namespace) -> None:
@@ -155,6 +155,7 @@ async def handle_revoke(args: argparse.Namespace) -> None:
     validate_role_name(args.role)
     validate_resource(args.resource)
     validate_action(args.action)
+    domain = getattr(args, "domain", "global")
 
     if args.role == 'admin' and args.resource == '*' and args.action == '*' and not args.force:
         print(
@@ -164,18 +165,18 @@ async def handle_revoke(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-
     enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
-    removed = await enforcer.remove_policy(args.role, args.resource, args.action)
+    removed = await enforcer.remove_policy(args.role, domain, args.resource, args.action)
     if removed:
-        print(f"Successfully revoked: ({args.role}, {args.resource}, {args.action}).")
+        print(f"Successfully revoked: ({args.role}, {domain}, {args.resource}, {args.action}).")
     else:
-        print(f"Policy not found: ({args.role}, {args.resource}, {args.action}).")
+        print(f"Policy not found: ({args.role}, {domain}, {args.resource}, {args.action}).")
 
 
 async def handle_assign_role(args: argparse.Namespace) -> None:
     """Assigns an authorization role to a specific user identifier."""
     validate_role_name(args.role)
+    domain = getattr(args, "domain", "global")
 
     async with AsyncSessionLocal() as session:
         user_repo = UserRepository(session=session)
@@ -186,25 +187,26 @@ async def handle_assign_role(args: argparse.Namespace) -> None:
 
     enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
     subject = AuthorizationService.user_subject(args.user_id)
-    if enforcer.has_grouping_policy(subject, args.role):
-        print(f"User {args.user_id} is already assigned to role '{args.role}'.")
+    if enforcer.has_grouping_policy(subject, args.role, domain):
+        print(f"User {args.user_id} is already assigned to role '{args.role}' in domain '{domain}'.")
         return
 
-    await enforcer.add_grouping_policy(subject, args.role)
-    print(f"Successfully assigned role '{args.role}' to user {args.user_id} ({subject}).")
+    await enforcer.add_grouping_policy(subject, args.role, domain)
+    print(f"Successfully assigned role '{args.role}' to user {args.user_id} ({subject}) in domain '{domain}'.")
 
 
 async def handle_unassign_role(args: argparse.Namespace) -> None:
     """Removes a role assignment from a specific user identifier."""
     validate_role_name(args.role)
+    domain = getattr(args, "domain", "global")
     enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
 
     subject = AuthorizationService.user_subject(args.user_id)
-    removed = await enforcer.remove_grouping_policy(subject, args.role)
+    removed = await enforcer.remove_grouping_policy(subject, args.role, domain)
     if removed:
-        print(f"Successfully removed role '{args.role}' from user {args.user_id}.")
+        print(f"Successfully removed role '{args.role}' from user {args.user_id} in domain '{domain}'.")
     else:
-        print(f"Role assignment not found for user {args.user_id} on role '{args.role}'.")
+        print(f"Role assignment not found for user {args.user_id} on role '{args.role}' in domain '{domain}'.")
 
 
 async def handle_list_policies() -> None:
@@ -217,25 +219,38 @@ async def handle_list_policies() -> None:
     if not policies:
         print("  (No active policies)")
     else:
-        print(f"  {'ROLE / SUBJECT':<20} {'RESOURCE':<15} {'ACTION':<15}")
-        print("  " + "-" * 50)
+        print(f"  {'ROLE / SUBJECT':<20} {'DOMAIN':<15} {'RESOURCE':<15} {'ACTION':<15}")
+        print("  " + "-" * 65)
         for p in policies:
             sub = p[0] if len(p) > 0 else ''
-            obj = p[1] if len(p) > 1 else ''
-            act = p[2] if len(p) > 2 else ''
-            print(f"  {sub:<20} {obj:<15} {act:<15}")
+            dom = p[1] if len(p) > 1 else 'global'
+            obj = p[2] if len(p) > 2 else ''
+            act = p[3] if len(p) > 3 else ''
+            print(f"  {sub:<20} {dom:<15} {obj:<15} {act:<15}")
 
     print("\n--- Active Role Groupings ('g') ---")
     if not groupings:
         print("  (No active groupings)")
     else:
-        print(f"  {'MEMBER':<20} {'ROLE':<20}")
-        print("  " + "-" * 40)
+        print(f"  {'MEMBER':<20} {'ROLE':<20} {'DOMAIN':<15}")
+        print("  " + "-" * 55)
         for g in groupings:
             member = g[0] if len(g) > 0 else ''
             role = g[1] if len(g) > 1 else ''
-            print(f"  {member:<20} {role:<20}")
+            dom = g[2] if len(g) > 2 else 'global'
+            print(f"  {member:<20} {role:<20} {dom:<15}")
     print()
+
+
+async def handle_purge_sessions(args: argparse.Namespace) -> None:
+    """Purges expired refresh session tombstones beyond grace period."""
+    grace_seconds = getattr(args, "grace_seconds", 300)
+    async with AsyncSessionLocal() as session:
+        from src.modules.auth.repo import RefreshSessionRepository
+        repo = RefreshSessionRepository(session=session)
+        deleted = await repo.purge_expired_tombstones(grace_seconds=grace_seconds)
+        await session.commit()
+        print(f"Successfully purged {deleted} expired refresh session tombstone(s).")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -263,26 +278,34 @@ def build_parser() -> argparse.ArgumentParser:
     grant_p.add_argument("role", help="Target role name (e.g. auditor, manager)")
     grant_p.add_argument("resource", help="Target resource or '*' (e.g. users, audit)")
     grant_p.add_argument("action", help="Target action or '*' (e.g. read, export)")
+    grant_p.add_argument("--domain", default="global", help="Target authorization domain (default: global)")
 
     # revoke
     revoke_p = subparsers.add_parser("revoke", help="Revoke a permission rule from a role")
     revoke_p.add_argument("role", help="Target role name")
     revoke_p.add_argument("resource", help="Target resource or '*'")
     revoke_p.add_argument("action", help="Target action or '*'")
+    revoke_p.add_argument("--domain", default="global", help="Target authorization domain (default: global)")
     revoke_p.add_argument("--force", action="store_true", help="Force revocation of critical policies")
 
     # assign-role
     assign_p = subparsers.add_parser("assign-role", help="Assign a role to a user ID")
     assign_p.add_argument("user_id", type=int, help="Target user integer ID")
     assign_p.add_argument("role", help="Role name to assign")
+    assign_p.add_argument("--domain", default="global", help="Target authorization domain (default: global)")
 
     # unassign-role
     unassign_p = subparsers.add_parser("unassign-role", help="Remove a role assignment from a user ID")
     unassign_p.add_argument("user_id", type=int, help="Target user integer ID")
     unassign_p.add_argument("role", help="Role name to remove")
+    unassign_p.add_argument("--domain", default="global", help="Target authorization domain (default: global)")
 
     # list-policies
     subparsers.add_parser("list-policies", help="List all policies and role groupings")
+
+    # purge-sessions
+    purge_p = subparsers.add_parser("purge-sessions", help="Purge expired refresh session tombstones")
+    purge_p.add_argument("--grace-seconds", type=int, default=300, help="Grace period in seconds (default: 300)")
 
     return parser
 
@@ -301,6 +324,7 @@ def main() -> None:
         'assign-role': lambda: handle_assign_role(args),
         'unassign-role': lambda: handle_unassign_role(args),
         'list-policies': lambda: handle_list_policies(),
+        'purge-sessions': lambda: handle_purge_sessions(args),
     }
 
     handler = command_handlers.get(args.command)

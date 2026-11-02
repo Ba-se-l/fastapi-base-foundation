@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.audit.enum import LogAction
 from src.modules.audit.schemas import LogSeverity
-from src.modules.audit.service import save_failed_event, save_success_event
+from src.modules.audit.service import sanitize_audit_payload, save_failed_event, save_success_event
 from src.modules.user.events import (
     UserAccessDenied,
     UserDeactivated,
@@ -49,6 +49,11 @@ async def on_user_not_found(event: UserNotFound, session: AsyncSession | None) -
         event_type='USER_NOT_FOUND',
         severity=LogSeverity.ERROR,
         user_id=str(event.user_id),
+        actor_id=None,
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
     )
 
@@ -71,6 +76,12 @@ async def on_user_access_denied(event: UserAccessDenied, session: AsyncSession |
         event_type=LogAction.SECURITY_ACCESS_DENIED,
         severity=severity,
         user_id=str(event.actor_id),
+        actor_id=str(event.actor_id),
+        actor_snapshot=event.actor_name,
+        entity_type="user",
+        entity_id=str(event.target_user_id),
+        domain_id="global",
+        outcome="DENIED",
         ctx=event.audit_ctx,
         extra_data={'action': event.action.value, 'target_user_id': event.target_user_id},
     )
@@ -93,6 +104,12 @@ async def on_user_inactive_targeted(event: UserInactiveTargeted, session: AsyncS
         event_type=LogAction.USER_DEACTIVATED,
         severity=LogSeverity.CRITICAL,
         user_id=str(event.target_user_id),
+        actor_id=str(event.actor_id),
+        actor_snapshot=event.actor_name,
+        entity_type="user",
+        entity_id=str(event.target_user_id),
+        domain_id="global",
+        outcome="FAILURE",
         ctx=event.audit_ctx,
     )
 
@@ -104,11 +121,17 @@ async def on_user_update_skipped(event: UserUpdateSkipped, session: AsyncSession
         event: The UserUpdateSkipped fact.
         session: Ignored by design; non-success paths use an autonomous session.
     """
+    actor_id_str = str(event.actor_id) if event.actor_id is not None else str(event.user_id)
     await save_failed_event(
         message=f'Update skipped for user ID [{event.user_id}]; update dict was empty.',
         event_type=LogAction.USER_UPDATED,
         severity=LogSeverity.WARNING,
         user_id=str(event.user_id),
+        actor_id=actor_id_str,
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SKIPPED",
         ctx=event.audit_ctx,
         extra_data={'update_dict': {}},
     )
@@ -121,13 +144,21 @@ async def on_user_updated(event: UserUpdated, session: AsyncSession | None) -> N
         event: The UserUpdated fact.
         session: Caller's active transaction for atomic persistence.
     """
+    actor_id_str = str(event.actor_id) if event.actor_id is not None else str(event.user_id)
+    sanitized_diff = sanitize_audit_payload(dict(event.changes))
     await save_success_event(
         message=f'User profile for ID [{event.user_id}] updated successfully.',
         session=session,
         event_type=LogAction.USER_UPDATED,
         user_id=str(event.user_id),
+        actor_id=actor_id_str,
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SUCCESS",
+        changes_payload=sanitized_diff,
         ctx=event.audit_ctx,
-        extra_data=dict(event.changes),
+        extra_data=sanitized_diff,
     )
 
 
@@ -138,18 +169,22 @@ async def on_user_deactivated(event: UserDeactivated, session: AsyncSession | No
         event: The UserDeactivated fact.
         session: Caller's active transaction for atomic persistence.
     """
+    actor_id_str = str(event.actor_id) if event.actor_id is not None else str(event.user_id)
+    changes = {'is_active': {'old': True, 'new': False}}
     await save_success_event(
         message=f'User account deactivated successfully [ID: {event.user_id}].',
         session=session,
         event_type=LogAction.USER_DEACTIVATED,
         user_id=str(event.user_id),
+        actor_id=actor_id_str,
+        entity_type="user",
+        entity_id=str(event.user_id),
+        domain_id="global",
+        outcome="SUCCESS",
+        changes_payload=changes,
         ctx=event.audit_ctx,
-        extra_data={'is_active': {'old': True, 'new': False}},
+        extra_data=changes,
     )
-
-
-
-
 
 
 def register_user_listeners(bus: AsyncEventBus) -> None:
