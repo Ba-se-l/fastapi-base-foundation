@@ -41,6 +41,8 @@ async def init_test_database(monkeypatch):
     reset_all_rate_limiters()
     monkeypatch.setattr(src.database.session, "AsyncSessionLocal", TestSessionLocal)
     monkeypatch.setattr(src.modules.audit.service, "AsyncSessionLocal", TestSessionLocal)
+    import manage
+    monkeypatch.setattr(manage, "AsyncSessionLocal", TestSessionLocal)
     async with test_engine.begin() as conn:
         await conn.run_sync(BaseModel.metadata.create_all)
     await AuthorizationService.initialize(test_engine)

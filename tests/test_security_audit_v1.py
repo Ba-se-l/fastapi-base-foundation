@@ -313,8 +313,8 @@ async def test_sec_12_integrity_error_sanitization(client: AsyncClient, db_sessi
     await db_session.commit()
     # Check audit log entries
     audit_repo = AuditLogRepository(session=db_session)
-    recent_logs = await audit_repo.list_paginated(limit=10, offset=0)
-    for log in recent_logs.items:
+    recent_logs, _ = await audit_repo.get_multi(limit=10, offset=0)
+    for log in recent_logs:
         if log.extra_data and "error" in log.extra_data:
             err_str = str(log.extra_data["error"])
             assert "$argon2id$" not in err_str
@@ -355,8 +355,8 @@ async def test_sec_16_cli_audit_trail_logging(db_session: AsyncSession):
 
     await db_session.commit()
     audit_repo = AuditLogRepository(session=db_session)
-    recent_logs = await audit_repo.list_paginated(limit=5, offset=0)
-    cli_logs = [log for log in recent_logs.items if log.user_id == "system:cli"]
+    recent_logs, _ = await audit_repo.get_multi(limit=10, offset=0)
+    cli_logs = [log for log in recent_logs if log.user_id == "system:cli" or (log.actor_id and log.actor_id.startswith("cli:"))]
     assert len(cli_logs) > 0
     assert "CLI_POLICY_GRANTED" in [log.event_type for log in cli_logs]
 

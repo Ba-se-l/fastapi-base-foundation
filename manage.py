@@ -20,6 +20,14 @@ from src.share import Action, Resource, Roles
 ROLE_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{1,49}$')
 
 
+async def get_or_init_enforcer():
+    """Returns the cached enforcer or initializes with AsyncEngineLocal if uninitialized."""
+    try:
+        return AuthorizationService.get_enforcer()
+    except Exception:
+        return await AuthorizationService.initialize(AsyncEngineLocal)
+
+
 async def record_cli_audit_event(
     session: AsyncSession,
     action: str,
@@ -99,7 +107,7 @@ def validate_action(action: str) -> None:
 
 async def handle_seed_policies() -> None:
     """Seeds baseline authorization rules into the Casbin storage."""
-    await AuthorizationService.initialize(AsyncEngineLocal)
+    await get_or_init_enforcer()
     count = await AuthorizationService.seed_default_policies()
     async with AsyncSessionLocal() as session:
         await record_cli_audit_event(
@@ -201,7 +209,7 @@ async def handle_grant(args: argparse.Namespace) -> None:
     validate_action(args.action)
     domain = getattr(args, "domain", "global")
 
-    enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
+    enforcer = await get_or_init_enforcer()
     if enforcer.has_policy(args.role, domain, args.resource, args.action):
         print(f"Policy already exists: ({args.role}, {domain}, {args.resource}, {args.action}).")
         return
@@ -235,7 +243,7 @@ async def handle_revoke(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
+    enforcer = await get_or_init_enforcer()
     removed = await enforcer.remove_policy(args.role, domain, args.resource, args.action)
     if removed:
         async with AsyncSessionLocal() as session:
@@ -265,7 +273,7 @@ async def handle_assign_role(args: argparse.Namespace) -> None:
             print(f"Error: User with ID {args.user_id} does not exist.", file=sys.stderr)
             sys.exit(1)
 
-    enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
+    enforcer = await get_or_init_enforcer()
     subject = AuthorizationService.user_subject(args.user_id)
     if enforcer.has_grouping_policy(subject, args.role, domain):
         print(f"User {args.user_id} is already assigned to role '{args.role}' in domain '{domain}'.")
@@ -289,7 +297,7 @@ async def handle_unassign_role(args: argparse.Namespace) -> None:
     """Removes a role assignment from a specific user identifier."""
     validate_role_name(args.role)
     domain = getattr(args, "domain", "global")
-    enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
+    enforcer = await get_or_init_enforcer()
 
     subject = AuthorizationService.user_subject(args.user_id)
     removed = await enforcer.remove_grouping_policy(subject, args.role, domain)
@@ -311,7 +319,7 @@ async def handle_unassign_role(args: argparse.Namespace) -> None:
 
 async def handle_list_policies() -> None:
     """Prints all active Casbin permission policies and role grouping links."""
-    enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
+    enforcer = await get_or_init_enforcer()
     policies = enforcer.get_policy()
     groupings = enforcer.get_grouping_policy()
 

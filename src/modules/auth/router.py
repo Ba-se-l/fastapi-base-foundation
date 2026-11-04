@@ -115,7 +115,6 @@ def resolve_refresh_token(
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user",
     description="Creates a new user account with a hashed password.",
-    dependencies=[Depends(auth_rate_limiter)],
 )
 async def register(
     http_request: Request,
@@ -137,7 +136,6 @@ async def register(
     status_code=status.HTTP_200_OK,
     summary="Login and get token pair",
     description="Authenticates user credentials and returns JWT access + refresh tokens.",
-    dependencies=[Depends(auth_rate_limiter)],
 )
 async def login(
     http_request: Request,

@@ -92,8 +92,11 @@ class RateLimiter:
         client_ip = resolve_client_ip(request) or "127.0.0.1"
         now = time.monotonic()
 
-        # Axis 1: Client IP throttle
-        self._check_single_key(f"ip:{client_ip}", now)
+        # Axis 1: Client IP throttle (only if not already checked in this request lifecycle)
+        if not (hasattr(request, "state") and getattr(request.state, "_rate_limited_ip", False)):
+            self._check_single_key(f"ip:{client_ip}", now)
+            if hasattr(request, "state"):
+                request.state._rate_limited_ip = True
 
         # Axis 2: Account identifier throttle (guards against distributed credential stuffing)
         if account_identifier and account_identifier.strip():
@@ -105,4 +108,7 @@ class RateLimiter:
             return
         client_ip = resolve_client_ip(request) or "127.0.0.1"
         now = time.monotonic()
-        self._check_single_key(f"ip:{client_ip}", now)
+        if not (hasattr(request, "state") and getattr(request.state, "_rate_limited_ip", False)):
+            self._check_single_key(f"ip:{client_ip}", now)
+            if hasattr(request, "state"):
+                request.state._rate_limited_ip = True
