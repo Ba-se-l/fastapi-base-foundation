@@ -22,7 +22,7 @@ class DomainResolutionResult:
     """Resolved domain access context for authorization checks."""
 
     domain_id: str
-    is_member: bool = True
+    is_member: bool = False
     domain_role: str | None = None
     parent_valid: bool = True
     deny_reason: str | None = None
@@ -39,12 +39,16 @@ class DomainAccessResolver(Protocol):
 
 
 class DefaultGlobalDomainResolver:
-    """Fallback domain resolver mapping all checks to the global domain."""
+    """Fallback domain resolver failing closed when no explicit resolver is provided."""
 
     async def resolve_domain_access(
         self, user: Any, request: Request
     ) -> DomainResolutionResult:
-        return DomainResolutionResult(domain_id=GLOBAL_DOMAIN, is_member=True)
+        return DomainResolutionResult(
+            domain_id=GLOBAL_DOMAIN,
+            is_member=False,
+            deny_reason="Explicit DomainAccessResolver is required for domain-scoped endpoints",
+        )
 
 
 def require_domain_permission(
@@ -90,6 +94,7 @@ def require_domain_permission(
             raise AccessDeniedException(deny_reason)
 
         effective_role = resolution.domain_role or current_user.role.value
+        await AuthorizationService.check_and_refresh_cache()
         allowed = AuthorizationService.is_allowed(
             user_id=current_user.id,
             role=effective_role,

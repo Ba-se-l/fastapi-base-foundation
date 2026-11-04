@@ -1,0 +1,32 @@
+name: Enterprise CI & Security Gate
+
+on:
+  push:
+    branches: ["main", "dev-sandbox"]
+  pull_request:
+    branches: ["main", "dev-sandbox"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Sync Locked Dependencies
+        run: uv sync --frozen
+
+      - name: Verify Alembic Migration Head & Schema Drift
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Execute Full Pytest Verification Suite
+        run: uv run pytest -v
+

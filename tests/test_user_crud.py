@@ -3,7 +3,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.user import User, UserRepository
-from src.security import create_access_token, hash_password
+from src.security import hash_password
+from tests.conftest import create_test_access_token
 from src.share import Roles
 
 
@@ -40,8 +41,8 @@ async def test_user_crud_and_authorization(client: AsyncClient, db_session: Asyn
     await user_repo.create(other_user)
     await db_session.commit()
 
-    admin_token = create_access_token(user_id=admin.id)
-    user_token = create_access_token(user_id=normal_user.id)
+    admin_token = await create_test_access_token(db_session, user_id=admin.id)
+    user_token = await create_test_access_token(db_session, user_id=normal_user.id)
 
     # 2. Regular user fetches own profile by ID -> 200 OK
     resp = await client.get(

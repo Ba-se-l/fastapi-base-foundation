@@ -1,18 +1,55 @@
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import getpass
 import re
 import sys
+from typing import Any
+import uuid
 
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import AsyncEngineLocal, AsyncSessionLocal
+from src.modules.audit.model import AuditLog
 from src.modules.auth.schemas import RegisterRequest
 from src.modules.user import User, UserRepository
 from src.security import AuthorizationService, hash_password
 from src.share import Action, Resource, Roles
 
 ROLE_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{1,49}$')
+
+
+async def record_cli_audit_event(
+    session: AsyncSession,
+    action: str,
+    target_id: str | int | None,
+    extra_data: dict[str, Any] | None = None,
+    domain_id: str = "global",
+    entity_type: str = "security",
+) -> None:
+    """Records an administrative action in audit_logs for forensic compliance."""
+    os_user = getpass.getuser()
+    now = datetime.now(timezone.utc)
+    log_entry = AuditLog(
+        event_type=action,
+        severity="INFO",
+        message=f"CLI command '{action}' executed by {os_user}.",
+        user_id="system:cli",
+        actor_id=f"cli:{os_user}",
+        actor_snapshot=f"CLI User ({os_user})",
+        entity_type=entity_type,
+        entity_id=str(target_id) if target_id is not None else None,
+        domain_id=domain_id,
+        outcome="SUCCESS",
+        occurred_at=now,
+        created_at=now,
+        ip_address="127.0.0.1",
+        user_agent="manage.py-cli",
+        request_id=uuid.uuid4().hex,
+        extra_data=extra_data or {},
+    )
+    session.add(log_entry)
 
 
 def validate_role_name(role: str) -> None:
@@ -64,6 +101,15 @@ async def handle_seed_policies() -> None:
     """Seeds baseline authorization rules into the Casbin storage."""
     await AuthorizationService.initialize(AsyncEngineLocal)
     count = await AuthorizationService.seed_default_policies()
+    async with AsyncSessionLocal() as session:
+        await record_cli_audit_event(
+            session=session,
+            action="CLI_POLICIES_SEEDED",
+            target_id="global",
+            extra_data={"rules_added": count},
+            entity_type="authorization_policy",
+        )
+        await session.commit()
     print(f"Successfully seeded default policies ({count} new rule(s) added).")
 
 
@@ -112,6 +158,13 @@ async def handle_create_admin(args: argparse.Namespace) -> None:
             security_version=1,
         )
         created = await user_repo.create(admin_user)
+        await record_cli_audit_event(
+            session=session,
+            action="CLI_ADMIN_CREATED",
+            target_id=created.id,
+            extra_data={"email": created.email, "role": Roles.ADMIN.value},
+            entity_type="user",
+        )
         await session.commit()
         print(f"Admin user successfully created with ID {created.id} (email: {created.email}).")
 
@@ -130,6 +183,13 @@ async def handle_promote_admin(args: argparse.Namespace) -> None:
             sys.exit(1)
 
         await user_repo.update(instance=user, update_dict={'role': Roles.ADMIN})
+        await record_cli_audit_event(
+            session=session,
+            action="CLI_ADMIN_PROMOTED",
+            target_id=user.id,
+            extra_data={"email": user.email, "promoted_role": Roles.ADMIN.value},
+            entity_type="user",
+        )
         await session.commit()
         print(f"User '{user.email}' (ID: {user.id}) successfully promoted to Admin.")
 
@@ -147,6 +207,16 @@ async def handle_grant(args: argparse.Namespace) -> None:
         return
 
     await enforcer.add_policy(args.role, domain, args.resource, args.action)
+    async with AsyncSessionLocal() as session:
+        await record_cli_audit_event(
+            session=session,
+            action="CLI_POLICY_GRANTED",
+            target_id=f"{args.role}:{args.resource}:{args.action}",
+            extra_data={"role": args.role, "resource": args.resource, "action": args.action},
+            domain_id=domain,
+            entity_type="authorization_policy",
+        )
+        await session.commit()
     print(f"Successfully granted: ({args.role}, {domain}, {args.resource}, {args.action}).")
 
 
@@ -168,6 +238,16 @@ async def handle_revoke(args: argparse.Namespace) -> None:
     enforcer = await AuthorizationService.initialize(AsyncEngineLocal)
     removed = await enforcer.remove_policy(args.role, domain, args.resource, args.action)
     if removed:
+        async with AsyncSessionLocal() as session:
+            await record_cli_audit_event(
+                session=session,
+                action="CLI_POLICY_REVOKED",
+                target_id=f"{args.role}:{args.resource}:{args.action}",
+                extra_data={"role": args.role, "resource": args.resource, "action": args.action},
+                domain_id=domain,
+                entity_type="authorization_policy",
+            )
+            await session.commit()
         print(f"Successfully revoked: ({args.role}, {domain}, {args.resource}, {args.action}).")
     else:
         print(f"Policy not found: ({args.role}, {domain}, {args.resource}, {args.action}).")
@@ -192,6 +272,16 @@ async def handle_assign_role(args: argparse.Namespace) -> None:
         return
 
     await enforcer.add_grouping_policy(subject, args.role, domain)
+    async with AsyncSessionLocal() as session:
+        await record_cli_audit_event(
+            session=session,
+            action="CLI_ROLE_ASSIGNED",
+            target_id=args.user_id,
+            extra_data={"user_id": args.user_id, "role": args.role, "subject": subject},
+            domain_id=domain,
+            entity_type="user_role",
+        )
+        await session.commit()
     print(f"Successfully assigned role '{args.role}' to user {args.user_id} ({subject}) in domain '{domain}'.")
 
 
@@ -204,6 +294,16 @@ async def handle_unassign_role(args: argparse.Namespace) -> None:
     subject = AuthorizationService.user_subject(args.user_id)
     removed = await enforcer.remove_grouping_policy(subject, args.role, domain)
     if removed:
+        async with AsyncSessionLocal() as session:
+            await record_cli_audit_event(
+                session=session,
+                action="CLI_ROLE_UNASSIGNED",
+                target_id=args.user_id,
+                extra_data={"user_id": args.user_id, "role": args.role, "subject": subject},
+                domain_id=domain,
+                entity_type="user_role",
+            )
+            await session.commit()
         print(f"Successfully removed role '{args.role}' from user {args.user_id} in domain '{domain}'.")
     else:
         print(f"Role assignment not found for user {args.user_id} on role '{args.role}' in domain '{domain}'.")

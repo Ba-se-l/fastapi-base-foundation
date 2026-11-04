@@ -179,13 +179,14 @@ async def register_user(
     try:
         user = await user_repo.create(instance=instance)
         await session.flush()
-    except IntegrityError as ie:
+    except IntegrityError:
         await event_bus.publish(
             event=AuthRegistrationFailed(
                 audit_ctx=audit_ctx,
                 email=schema.email,
-                error=str(ie),
-            )
+                error="integrity_constraint_violation",
+            ),
+            session=session,
         )
         raise UserAlreadyExistsException(field='email', value=schema.email)
 
@@ -311,16 +312,16 @@ async def logout(
 
     refresh_repo = RefreshSessionRepository(session=session)
     existing_session = await refresh_repo.get_by_jti(jti=jti)
-    if existing_session is not None:
-        if existing_session.user_id != token_user_id:
-            raise InvalidCredentialsException()
-        # Always revoke the whole family, even if existing_session was already revoked/rotated (P02)
-        await refresh_repo.revoke_family(
-            family_id=existing_session.family_id,
-            user_id=existing_session.user_id,
-        )
-    else:
-        await refresh_repo.revoke_by_jti(jti=jti)
+    if existing_session is None:
+        raise TokenRevokedException()
+    if existing_session.user_id != token_user_id:
+        raise InvalidCredentialsException()
+
+    # Always revoke the whole family, even if existing_session was already revoked/rotated (P02)
+    await refresh_repo.revoke_family(
+        family_id=existing_session.family_id,
+        user_id=existing_session.user_id,
+    )
 
     await event_bus.publish(
         event=AuthLoggedOut(

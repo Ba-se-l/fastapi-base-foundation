@@ -1,3 +1,4 @@
+from tests.conftest import create_test_access_token
 import argparse
 import pytest
 from httpx import AsyncClient
@@ -15,7 +16,6 @@ from src.security import (
     AuthorizationNotInitializedError,
     AuthorizationService,
     CasbinRule,
-    create_access_token,
     hash_password,
 )
 from src.share import Roles
@@ -92,8 +92,8 @@ async def test_route_permissions_admin_allowed_user_denied(client: AsyncClient, 
     await user_repo.create(user)
     await db_session.commit()
 
-    admin_token = create_access_token(user_id=admin.id)
-    user_token = create_access_token(user_id=user.id)
+    admin_token = await create_test_access_token(db_session, user_id=admin.id)
+    user_token = await create_test_access_token(db_session, user_id=user.id)
 
     # 1. /users endpoint (Resource.USERS, Action.READ)
     resp_user = await client.get('/api/v1/users', headers={'Authorization': f'Bearer {user_token}'})
@@ -132,7 +132,7 @@ async def test_runtime_per_user_grant_applies_immediately(client: AsyncClient, d
     await user_repo.create(user)
     await db_session.commit()
 
-    user_token = create_access_token(user_id=user.id)
+    user_token = await create_test_access_token(db_session, user_id=user.id)
 
     # Step 1: Initially denied
     init_resp = await client.get('/api/v1/audit/logs', headers={'Authorization': f'Bearer {user_token}'})
@@ -179,7 +179,7 @@ async def test_role_wide_grant_unlocks_service_level_read(client: AsyncClient, d
     await user_repo.create(user_b)
     await db_session.commit()
 
-    token_a = create_access_token(user_id=user_a.id)
+    token_a = await create_test_access_token(db_session, user_id=user_a.id)
 
     # User A tries to view User B's profile -> 403 Forbidden
     resp_init = await client.get(f'/api/v1/users/{user_b.id}', headers={'Authorization': f'Bearer {token_a}'})
@@ -217,7 +217,7 @@ async def test_assign_role_is_independent_from_update(client: AsyncClient, db_se
     await user_repo.create(target)
     await db_session.commit()
 
-    manager_token = create_access_token(user_id=manager.id)
+    manager_token = await create_test_access_token(db_session, user_id=manager.id)
 
     # Grant 'manager' role USERS:UPDATE (but NOT USERS:ASSIGN_ROLE)
     enforcer = AuthorizationService.get_enforcer()
@@ -257,7 +257,7 @@ async def test_empty_policy_store_fails_closed(client: AsyncClient, db_session: 
     await user_repo.create(admin)
     await db_session.commit()
 
-    admin_token = create_access_token(user_id=admin.id)
+    admin_token = await create_test_access_token(db_session, user_id=admin.id)
 
     # Clear all policies from enforcer
     enforcer = AuthorizationService.get_enforcer()

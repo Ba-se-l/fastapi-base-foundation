@@ -77,3 +77,35 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=transport, base_url='http://test') as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+import uuid
+from datetime import datetime, timedelta, timezone
+from src.modules.auth.model import RefreshSession
+from src.security import create_access_token as _base_create_access_token
+
+
+async def create_test_access_token(
+    db_session: AsyncSession,
+    user_id: int,
+    security_version: int = 1,
+) -> str:
+    """Creates a signed JWT access token and registers an active RefreshSession in the test DB."""
+    family_id = uuid.uuid4().hex
+    token = _base_create_access_token(
+        user_id=user_id,
+        security_version=security_version,
+        family_id=family_id,
+    )
+    now = datetime.now(timezone.utc)
+    sess = RefreshSession(
+        user_id=user_id,
+        family_id=family_id,
+        refresh_token_jti=uuid.uuid4().hex,
+        expires_at=now + timedelta(days=7),
+        is_revoked=False,
+    )
+    db_session.add(sess)
+    await db_session.commit()
+    return token
+

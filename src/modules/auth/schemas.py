@@ -105,8 +105,8 @@ class TokenResponse(BaseModel):
     access_token: str
     """The short-lived JWT access token string."""
 
-    refresh_token: str
-    """The long-lived JWT refresh token string."""
+    refresh_token: str | None = None
+    """The long-lived JWT refresh token string (omitted in cookie-only transport mode)."""
 
     token_type: str = 'bearer'
     """The token type. Always ``bearer``."""

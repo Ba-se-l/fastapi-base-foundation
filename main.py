@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.database import AsyncEngineLocal, check_database_connection
 from src.exc import AppException
 from src.modules import api_router
-from src.settings import settings
+from src.settings import Environment, settings
 from src.share import AUDIT_REQUEST_ID_MAX, ErrorDetail, ErrorResponse, _HTTP_ERROR_CODE_MAP
 from src.share.event_bus import event_bus
 from src.modules.audit import drain_background_tasks
@@ -63,11 +63,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 
+docs_enabled = bool(settings.enable_docs_and_ui)
+
 app = FastAPI(
     title=settings.app_title,
     version=settings.app_version,
     description=settings.app_description,
     lifespan=lifespan,
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
 )
 
 # Configure CORS
@@ -92,6 +97,28 @@ async def request_context_middleware(request: Request, call_next):
 
     response = await call_next(request)
     response.headers['X-Request-ID'] = request_id
+    return response
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Injects standard HTTP security headers into every response."""
+    response = await call_next(request)
+    if settings.security_headers_enabled:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data:; frame-ancestors 'none';",
+        )
+        if settings.environment in (Environment.STAGING, Environment.PRO, Environment.PROD):
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+            )
     return response
 
 
@@ -307,14 +334,13 @@ static_dir = Path(__file__).resolve().parent / "static"
 if not static_dir.exists():
     static_dir.mkdir(parents=True, exist_ok=True)
 
+if docs_enabled and static_dir.exists():
+    @app.get("/ui", include_in_schema=False)
+    async def ui_redirect() -> RedirectResponse:
+        """Redirects /ui to /ui/ to ensure relative asset paths resolve correctly."""
+        return RedirectResponse(url="/ui/")
 
-@app.get("/ui", include_in_schema=False)
-async def ui_redirect() -> RedirectResponse:
-    """Redirects /ui to /ui/ to ensure relative asset paths resolve correctly."""
-    return RedirectResponse(url="/ui/")
-
-
-app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="static")
+    app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="static")
 
 
 if __name__ == '__main__':

@@ -145,6 +145,7 @@ def require_permission(
     async def _permission_checker(
         current_user: User = Depends(get_current_user),
     ) -> User:
+        await AuthorizationService.check_and_refresh_cache()
         allowed = AuthorizationService.is_allowed(
             user_id=current_user.id,
             role=current_user.role.value,

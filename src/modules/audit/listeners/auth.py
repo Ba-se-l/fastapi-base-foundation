@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.audit.enum import LogAction
 from src.modules.audit.schemas import LogSeverity
-from src.modules.audit.service import save_failed_event, save_success_event
+from src.modules.audit.service import save_failed_event, save_success_event, scrub_error_reason
 from src.modules.auth.events import ( 
     AuthAllSessionsRevoked,
     AuthEmailAlreadyRegistered,
@@ -88,7 +88,7 @@ async def on_auth_registration_failed(
         domain_id="global",
         outcome="FAILURE",
         ctx=event.audit_ctx,
-        extra_data={'email': event.email, 'error': event.error},
+        extra_data={'email': event.email, 'error': scrub_error_reason(event.error)},
     )
 
 

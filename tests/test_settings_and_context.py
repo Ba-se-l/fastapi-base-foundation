@@ -85,13 +85,66 @@ def test_settings_hardened_environments_rules():
     # Valid production settings pass
     pro_settings = Settings(
         environment=Environment.PRO,
-        access_secret_key="a" * 32,
-        refresh_secret_key="b" * 32,
+        access_secret_key="A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+        refresh_secret_key="Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4",
         allowed_origins=["https://enterprise.io"],
         echo=False,
         reload=False,
     )
     assert pro_settings.environment == Environment.PRO
+
+
+def test_settings_entropy_and_hardened_rejections():
+    """Verifies low-entropy secrets, wildcard origins, and insecure cookies are rejected in hardened modes."""
+    with pytest.raises(ValidationError):
+        Settings(
+            environment=Environment.PROD,
+            access_secret_key="a" * 32,
+            refresh_secret_key="Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4",
+            allowed_origins=["https://enterprise.io"],
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            environment=Environment.STAGING,
+            access_secret_key="A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+            refresh_secret_key="Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4",
+            allowed_origins=["*"],
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            environment=Environment.PROD,
+            access_secret_key="A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+            refresh_secret_key="Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4",
+            allowed_origins=["https://enterprise.io"],
+            refresh_cookie_secure=False,
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            environment=Environment.DEV,
+            refresh_cookie_secure=False,
+            refresh_cookie_samesite="none",
+        )
+
+
+def test_settings_environment_aware_defaults():
+    """Verifies environment-aware defaults for docs/ui, public registration, and DEV keys."""
+    dev_settings = Settings(environment=Environment.DEV)
+    assert dev_settings.allow_public_registration is True
+    assert dev_settings.enable_docs_and_ui is True
+    assert len(dev_settings.access_secret_key) >= 32
+    assert not dev_settings.access_secret_key.startswith("placeholder-")
+
+    prod_settings = Settings(
+        environment=Environment.PROD,
+        access_secret_key="A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+        refresh_secret_key="Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4",
+        allowed_origins=["https://enterprise.io"],
+    )
+    assert prod_settings.allow_public_registration is False
+    assert prod_settings.enable_docs_and_ui is False
 
 
 def test_resolve_client_ip_mechanics(monkeypatch: pytest.MonkeyPatch):

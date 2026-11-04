@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,16 +46,42 @@ def clear_refresh_cookie(response: Response) -> None:
     )
 
 
+def _normalize_origin_tuple(raw_url: str) -> tuple[str, str, int | None] | None:
+    """Deconstructs a URL string into a normalized (scheme, hostname, port) tuple."""
+    try:
+        parsed = urlsplit(raw_url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return (parsed.scheme.lower(), parsed.hostname.lower(), port)
+
+
 def verify_cookie_csrf_origin(request: Request) -> None:
-    """Guards cookie-authenticated requests against cross-site request forgery."""
+    """Enforces strict exact-origin CSRF protection for cookie-authenticated endpoints."""
     if "*" in settings.allowed_origins:
-        return
-    origin = request.headers.get("origin") or request.headers.get("referer")
-    if origin:
-        origin_clean = origin.rstrip("/")
-        allowed = [o.rstrip("/") for o in settings.allowed_origins]
-        if not any(origin_clean.startswith(a) for a in allowed):
-            raise AccessDeniedException("CSRF check failed: Origin or Referer header untrusted.")
+        raise AccessDeniedException(
+            "CSRF check failed: wildcard '*' in ALLOWED_ORIGINS is prohibited for cookie authentication."
+        )
+
+    raw_source = request.headers.get("origin") or request.headers.get("referer")
+    if not raw_source or raw_source.strip().lower() == "null":
+        raise AccessDeniedException(
+            "CSRF check failed: Origin or Referer header is required for cookie authentication."
+        )
+
+    source_tuple = _normalize_origin_tuple(raw_source)
+    if source_tuple is None:
+        raise AccessDeniedException("CSRF check failed: Malformed Origin or Referer header.")
+
+    allowed_tuples = {
+        t for orig in settings.allowed_origins if (t := _normalize_origin_tuple(orig)) is not None
+    }
+    if source_tuple not in allowed_tuples:
+        raise AccessDeniedException("CSRF check failed: Origin or Referer header untrusted.")
 
 
 def resolve_refresh_token(
@@ -91,6 +118,7 @@ def resolve_refresh_token(
     dependencies=[Depends(auth_rate_limiter)],
 )
 async def register(
+    http_request: Request,
     request: RegisterRequest,
     session: SessionDep,
     audit_ctx: AuditContext = Depends(get_audit_context),
@@ -98,6 +126,7 @@ async def register(
     """Registers a new user and returns the user profile."""
     if not settings.allow_public_registration:
         raise AccessDeniedException("Public user registration is disabled.")
+    await auth_rate_limiter.check_request_and_account(request=http_request, account_identifier=request.email)
     user = await service.register_user(schema=request, session=session, audit_ctx=audit_ctx)
     return UserResponse.model_validate(user)
 
@@ -111,15 +140,23 @@ async def register(
     dependencies=[Depends(auth_rate_limiter)],
 )
 async def login(
+    http_request: Request,
     request: LoginRequest,
     response: Response,
     session: SessionDep,
     audit_ctx: AuditContext = Depends(get_audit_context),
 ) -> TokenResponse:
     """Authenticates a user and issues a dual-token pair."""
+    await auth_rate_limiter.check_request_and_account(request=http_request, account_identifier=request.email)
     tokens = await service.login_user(schema=request, session=session, audit_ctx=audit_ctx)
-    if settings.auth_transport_mode in ("dual", "cookie"):
+    if settings.auth_transport_mode in ("dual", "cookie") and tokens.refresh_token:
         set_refresh_cookie(response, tokens.refresh_token)
+    if settings.auth_transport_mode == "cookie":
+        return TokenResponse(
+            access_token=tokens.access_token,
+            refresh_token=None,
+            token_type=tokens.token_type,
+        )
     return tokens
 
 
@@ -149,8 +186,14 @@ async def refresh(
         session=session,
         audit_ctx=audit_ctx,
     )
-    if settings.auth_transport_mode in ("dual", "cookie"):
+    if settings.auth_transport_mode in ("dual", "cookie") and tokens.refresh_token:
         set_refresh_cookie(response, tokens.refresh_token)
+    if settings.auth_transport_mode == "cookie":
+        return TokenResponse(
+            access_token=tokens.access_token,
+            refresh_token=None,
+            token_type=tokens.token_type,
+        )
     return tokens
 
 

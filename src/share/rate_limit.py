@@ -1,5 +1,5 @@
 import time
-from collections import defaultdict
+from collections import OrderedDict
 from fastapi import HTTPException, Request, status
 
 from src.settings import settings
@@ -15,16 +15,18 @@ def reset_all_rate_limiters() -> None:
 
 
 class RateLimiter:
-    """In-memory sliding window rate limiter dependency for FastAPI."""
+    """In-memory sliding window rate limiter with O(1) LRU eviction and dual-axis throttling."""
 
     def __init__(
         self,
         requests: int | None = None,
         window_seconds: int | None = None,
-    ):
+        max_tracked_keys: int | None = None,
+    ) -> None:
         self._custom_requests = requests
         self._custom_window = window_seconds
-        self._history: dict[str, list[float]] = defaultdict(list)
+        self._custom_max_keys = max_tracked_keys
+        self._history: OrderedDict[str, list[float]] = OrderedDict()
         _ACTIVE_LIMITERS.append(self)
 
     @property
@@ -43,28 +45,64 @@ class RateLimiter:
             else settings.auth_rate_limit_window_seconds
         )
 
+    @property
+    def max_tracked_keys(self) -> int:
+        return (
+            self._custom_max_keys
+            if self._custom_max_keys is not None
+            else getattr(settings, "rate_limit_max_tracked_keys", 10_000)
+        )
+
     def reset(self) -> None:
         self._history.clear()
 
-    async def __call__(self, request: Request) -> None:
-        if not settings.rate_limit_enabled:
-            return
-
-        client_ip = resolve_client_ip(request) or "127.0.0.1"
-        now = time.monotonic()
+    def _check_single_key(self, key: str, now: float) -> None:
         cutoff = now - self.window_seconds
-
-        # Retain only timestamps inside the current window
-        timestamps = [t for t in self._history[client_ip] if t > cutoff]
-        self._history[client_ip] = timestamps
+        existing = self._history.get(key, [])
+        timestamps = [t for t in existing if t > cutoff]
 
         if len(timestamps) >= self.requests:
             retry_after = max(1, int(self.window_seconds - (now - timestamps[0])) + 1)
+            # Retain valid timestamps and keep fresh
+            self._history[key] = timestamps
+            self._history.move_to_end(key)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests. Please try again later.",
                 headers={"Retry-After": str(retry_after)},
             )
 
-        self._history[client_ip].append(now)
+        timestamps.append(now)
+        self._history[key] = timestamps
+        self._history.move_to_end(key)
 
+        # Enforce strict LRU memory cap
+        while len(self._history) > self.max_tracked_keys:
+            self._history.popitem(last=False)
+
+    async def check_request_and_account(
+        self,
+        request: Request,
+        account_identifier: str | None = None,
+    ) -> None:
+        """Enforces dual-axis rate limiting across both client IP and account identifier."""
+        if not settings.rate_limit_enabled:
+            return
+
+        client_ip = resolve_client_ip(request) or "127.0.0.1"
+        now = time.monotonic()
+
+        # Axis 1: Client IP throttle
+        self._check_single_key(f"ip:{client_ip}", now)
+
+        # Axis 2: Account identifier throttle (guards against distributed credential stuffing)
+        if account_identifier and account_identifier.strip():
+            norm_account = account_identifier.strip().lower()
+            self._check_single_key(f"acct:{norm_account}", now)
+
+    async def __call__(self, request: Request) -> None:
+        if not settings.rate_limit_enabled:
+            return
+        client_ip = resolve_client_ip(request) or "127.0.0.1"
+        now = time.monotonic()
+        self._check_single_key(f"ip:{client_ip}", now)

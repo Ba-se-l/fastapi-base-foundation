@@ -1,9 +1,56 @@
 /**
- * Unified HTTP Client with Live Network Inspector Logging
+ * Unified HTTP Client with Live Network Inspector Logging (SEC-09 Redaction Hardened)
  * Injects Bearer tokens from active virtual device and custom X-Request-ID.
+ * Deeply redacts sensitive credentials in inspector snapshots.
  */
 import { sessionStore } from './session-store.js';
 import { eventBus } from './event-emitter.js';
+
+export function redactSensitiveHeaders(headersObj) {
+    if (!headersObj || typeof headersObj !== 'object') return headersObj;
+    const clean = {};
+    for (const [k, v] of Object.entries(headersObj)) {
+        if (/^(authorization|cookie|set-cookie)$/i.test(k)) {
+            if (/^authorization$/i.test(k) && typeof v === 'string' && v.startsWith('Bearer ')) {
+                clean[k] = 'Bearer [REDACTED]';
+            } else {
+                clean[k] = '[REDACTED]';
+            }
+        } else {
+            clean[k] = v;
+        }
+    }
+    return clean;
+}
+
+export function redactSensitivePayload(data) {
+    if (!data) return data;
+    if (typeof data === 'string') {
+        try {
+            const parsed = JSON.parse(data);
+            return JSON.stringify(redactSensitivePayload(parsed));
+        } catch {
+            return data;
+        }
+    }
+    if (Array.isArray(data)) {
+        return data.map(item => redactSensitivePayload(item));
+    }
+    if (typeof data === 'object') {
+        const clean = {};
+        for (const [k, v] of Object.entries(data)) {
+            if (/^(password|old_password|new_password|confirm_password|refresh_token|access_token|secret)$/i.test(k)) {
+                clean[k] = '[REDACTED]';
+            } else if (typeof v === 'object' && v !== null) {
+                clean[k] = redactSensitivePayload(v);
+            } else {
+                clean[k] = v;
+            }
+        }
+        return clean;
+    }
+    return data;
+}
 
 class HttpClient {
     async request(url, options = {}) {
@@ -30,12 +77,15 @@ class HttpClient {
             headers.set('Content-Type', 'application/json');
         }
 
-        // Capture request snapshot for Inspector
+        // Capture raw headers map for request
+        const rawHeadersMap = Object.fromEntries(headers.entries());
+
+        // Capture redacted request snapshot for Inspector
         const requestSnapshot = {
             method: (options.method || 'GET').toUpperCase(),
             url,
-            headers: Object.fromEntries(headers.entries()),
-            body: options.body || null,
+            headers: redactSensitiveHeaders(rawHeadersMap),
+            body: redactSensitivePayload(options.body || null),
             timestamp: new Date().toISOString(),
             deviceSlot: activeSlot,
         };
@@ -53,7 +103,6 @@ class HttpClient {
             });
 
             const durationMs = Math.round(performance.now() - startTime);
-
             const responseHeaders = Object.fromEntries(response.headers.entries());
 
             if (isBlob) {
@@ -67,14 +116,14 @@ class HttpClient {
                 }
             }
 
-            // Emit to Network Inspector
+            // Emit Redacted Snapshot to Network Inspector
             eventBus.emit('http:transaction', {
                 request: requestSnapshot,
                 response: {
                     status: response.status,
                     statusText: response.statusText,
-                    headers: responseHeaders,
-                    data: responseData,
+                    headers: redactSensitiveHeaders(responseHeaders),
+                    data: redactSensitivePayload(responseData),
                     durationMs,
                     ok: response.ok,
                 }

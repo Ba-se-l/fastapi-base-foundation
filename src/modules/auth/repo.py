@@ -125,9 +125,9 @@ class RefreshSessionRepository(BaseRepository[RefreshSession]):
         return result.rowcount or 0
 
     async def is_family_active(self, family_id: str, user_id: int) -> bool:
-        """Checks whether a session family currently possesses at least one valid, unrevoked token.
+        """Checks whether a session family currently possesses at least one valid, unrevoked, unexpired session.
 
-        Used by authentication guards to verify device session validity.
+        Enforces strict fail-closed validation: returns True only if an active unexpired record exists.
 
         Args:
             family_id: The session family identifier.
@@ -135,23 +135,9 @@ class RefreshSessionRepository(BaseRepository[RefreshSession]):
 
         Returns:
             True if the family has an active, unexpired session; False otherwise.
-            If no session records exist for this family (e.g. synthetic test tokens),
-            returns True to maintain unit test compatibility.
         """
         now = datetime.now(timezone.utc)
-        stmt_any = (
-            select(RefreshSession.id)
-            .where(
-                RefreshSession.family_id == family_id,
-                RefreshSession.user_id == user_id,
-            )
-            .limit(1)
-        )
-        has_any = (await self.session.execute(stmt_any)).scalar_one_or_none()
-        if has_any is None:
-            return True
-
-        stmt = (
+        stmt_active = (
             select(RefreshSession.id)
             .where(
                 RefreshSession.family_id == family_id,
@@ -161,8 +147,8 @@ class RefreshSessionRepository(BaseRepository[RefreshSession]):
             )
             .limit(1)
         )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        active_id = (await self.session.execute(stmt_active)).scalar_one_or_none()
+        return active_id is not None
 
     async def list_active_for_user(self, user_id: int) -> Sequence[RefreshSession]:
         """Fetches all active, unrevoked sessions for a specific user.

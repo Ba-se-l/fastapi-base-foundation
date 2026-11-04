@@ -1,5 +1,6 @@
 /**
- * Multi-Device Session Store
+ * Multi-Device Session Store (SEC-08 Hardened)
+ * Uses sessionStorage (tab-isolated, cleared on window close) instead of permanent localStorage.
  * Manages concurrent virtual devices (Device A vs Device B) and Replay Test Buffer.
  */
 import { decodeJwt } from './jwt-decoder.js';
@@ -9,13 +10,30 @@ const STORAGE_KEY = 'fastapi_workbench_sessions_v1';
 
 class SessionStore {
     constructor() {
+        this.memoryFallback = null;
         this.state = this._load();
     }
 
-    _load() {
+    _getStorage() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) return JSON.parse(raw);
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                return window.sessionStorage;
+            }
+        } catch (e) {
+            console.warn('sessionStorage unavailable, falling back to memory:', e);
+        }
+        return null;
+    }
+
+    _load() {
+        const storage = this._getStorage();
+        try {
+            if (storage) {
+                const raw = storage.getItem(STORAGE_KEY);
+                if (raw) return JSON.parse(raw);
+            } else if (this.memoryFallback) {
+                return this.memoryFallback;
+            }
         } catch (e) {
             console.error('Failed to parse session storage:', e);
         }
@@ -29,7 +47,16 @@ class SessionStore {
     }
 
     _save() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+        const storage = this._getStorage();
+        if (storage) {
+            try {
+                storage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+            } catch (e) {
+                console.error('Failed to write to sessionStorage:', e);
+            }
+        } else {
+            this.memoryFallback = JSON.parse(JSON.stringify(this.state));
+        }
         eventBus.emit('session:changed', this.state);
     }
 
@@ -49,13 +76,13 @@ class SessionStore {
         return this.state[targetSlot] || null;
     }
 
-    setSession(slot, { accessToken, refreshToken, user = null }) {
-        const decodedAccess = decodeJwt(accessToken);
-        const decodedRefresh = decodeJwt(refreshToken);
+    setSession(slot, { accessToken, refreshToken = null, user = null }) {
+        const decodedAccess = accessToken ? decodeJwt(accessToken) : null;
+        const decodedRefresh = refreshToken ? decodeJwt(refreshToken) : null;
         
         this.state[slot] = {
             accessToken,
-            refreshToken,
+            refreshToken: refreshToken || null,
             user,
             accessClaims: decodedAccess,
             refreshClaims: decodedRefresh,
@@ -74,6 +101,24 @@ class SessionStore {
         this.state.device_a = null;
         this.state.device_b = null;
         this.state.replayBuffer = null;
+        this._save();
+    }
+
+    purgeAllSessions() {
+        const storage = this._getStorage();
+        if (storage) {
+            try {
+                storage.removeItem(STORAGE_KEY);
+            } catch (e) {}
+        }
+        this.memoryFallback = null;
+        this.state = {
+            activeSlot: 'device_a',
+            device_a: null,
+            device_b: null,
+            replayBuffer: null,
+            customRequestId: '',
+        };
         this._save();
     }
 
