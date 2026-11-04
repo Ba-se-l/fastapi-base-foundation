@@ -1,6 +1,6 @@
 # 🧪 الدليل المعماري والهندسي لحزمة الاختبارات (`tests/`)
 
-[![Tests](https://img.shields.io/badge/pytest-106%20passed-brightgreen.svg?style=flat-square&logo=pytest)](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests)
+[![Tests](https://img.shields.io/badge/pytest-115%20passed-brightgreen.svg?style=flat-square&logo=pytest)](.)
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg?style=flat-square&logo=python)](pyproject.toml)
 [![Architecture](https://img.shields.io/badge/architecture-mirrored%20modular-orange.svg?style=flat-square)](tests)
 
@@ -37,7 +37,7 @@
 
 3. **معالجة الشبكة داخلياً بدون فتح منافذ (`httpx.AsyncClient`):**
    * تُدار كافة طلبات HTTP داخل عملية التشغيل عبر `ASGITransport(app=app)`.
-   * انعدام استهلاك المنافذ (Zero Port Binding) وسرعة استجابة فائقة (تُنفذ كامل الحزمة المكونة من 106 اختبارات في نحو 3 ثوانٍ فقط).
+   * انعدام استهلاك المنافذ (Zero Port Binding) وسرعة استجابة فائقة (تُنفذ كامل الحزمة المكونة من 115 اختباراً في نحو 3 ثوانٍ فقط).
 
 4. **بنية تحتية مستقلة تماماً (Decoupled Support):**
    * تلتزم ملفات الاختبارات بمنع الاستيراد المباشر من ملف `conftest` (تجنباً للممارسات السيئة في بيئات Pytest المعاصرة).
@@ -106,18 +106,18 @@ tests/
 
 لتفادي التبعيات الدائرية والالتزام بتوصيات Pytest التي تمنع الاستيراد المباشر من ملفات `conftest`، جرى تجميع أدوات الاختبار في حزمة `tests/support/`:
 
-* **[`tests/support/database.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/database.py)**:
+* **[`tests/support/database.py`](support/database.py)**:
   * `TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"`
   * `test_engine`: كائن محرك SQLAlchemy غير المتزامن مهيأ بـ `echo=False`.
   * `TestSessionLocal`: مصنع الجلسات `async_sessionmaker` مع تعطيل `expire_on_commit` و `autoflush`.
-* **[`tests/support/paths.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/paths.py)**:
+* **[`tests/support/paths.py`](support/paths.py)**:
   * `PROJECT_ROOT`: المسار المطلق لجذر المشروع.
   * `ALEMBIC_INI`: المسار المطلق لملف `alembic.ini`.
-  * `STATIC_DIR`: المسار المطلق لمجلد الأصول الثابتة `src/app/static`.
+  * `STATIC_DIR`: المسار المطلق لمجلد الأصول الثابتة `static/`.
 
 ### `tests/conftest.py` الفيكستشرز العامة
 
-الملف: [`tests/conftest.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/conftest.py)
+الملف: [`tests/conftest.py`](conftest.py)
 
 | اسم الفيكستشر | النطاق (Scope) | الوظيفة والدور المعماري |
 |---|---|---|
@@ -136,7 +136,7 @@ tests/
 |---|---|---|---|
 | `release_gate` | `uv run --frozen pytest -m release_gate` | **15 اختباراً** | التحقق من عقود الإصدار المعمارية الإلزامية (`RG-01` حتى `RG-15`). |
 | `security_audit` | `uv run --frozen pytest -m security_audit` | **18 اختباراً** | التحقق من صمامات الأمان العميقة ومقاومة الثغرات (`SEC-01` حتى `SEC-18`). |
-| *كافة الاختبارات* | `uv run --frozen pytest` | **106 اختبارات** | تنفيذ كامل الحزمة التأكيدية للمشروع بنجاح 100%. |
+| *كافة الاختبارات* | `uv run --frozen pytest` | **115 اختباراً** | تنفيذ كامل الحزمة التأكيدية للمشروع بنجاح 100%. |
 
 ---
 

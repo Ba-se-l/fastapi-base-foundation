@@ -22,9 +22,21 @@ JWT_SECRET_MIN_ENTROPY: int = 10
 _HARDENED_ENVIRONMENTS: frozenset[Environment] = frozenset({Environment.STAGING, Environment.PRO, Environment.PROD})
 _PLACEHOLDER_SECRETS: frozenset[str] = frozenset({
     'placeholder-change-it-in-production-mode',
+    'replace-with-a-very-long-high-entropy-access-secret-32ch!',
+    'replace-with-a-very-long-high-entropy-refresh-secret-32ch!',
     'changeme',
+    'change-me',
     'secret',
+    'default',
+    '',
 })
+_FORBIDDEN_SECRET_PREFIXES: tuple[str, ...] = (
+    'replace-with-',
+    'placeholder-',
+    'changeme-',
+    'example-',
+    'your-secret-',
+)
 
 
 class Settings(Base):
@@ -86,6 +98,16 @@ class Settings(Base):
     auth_rate_limit_window_seconds: int = 60
     authz_cache_ttl_seconds: int = 5
     rate_limit_max_tracked_keys: int = Field(default=10_000, ge=100, le=100_000)
+    content_security_policy: str = (
+        "default-src 'self'; "
+        "script-src 'self' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data:; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none';"
+    )
     # ————————————————————————————
 
     # ———————— AUDIT & LOGGING ————————
@@ -147,6 +169,14 @@ class Settings(Base):
                 "Specify at least one trusted CIDR network or IP address."
             )
 
+    @classmethod
+    def _is_placeholder_or_example_secret(cls, value: str) -> bool:
+        """Returns True if the secret matches any known placeholder or forbidden example prefix."""
+        normalized = value.strip().lower()
+        if normalized in _PLACEHOLDER_SECRETS:
+            return True
+        return any(normalized.startswith(prefix) for prefix in _FORBIDDEN_SECRET_PREFIXES)
+
     def _check_hardened_secrets(self) -> None:
         is_hardened = self.environment in _HARDENED_ENVIRONMENTS
 
@@ -157,8 +187,7 @@ class Settings(Base):
                 if (
                     attr not in self.model_fields_set
                     or not value
-                    or value.startswith('placeholder-change-it-in-production-mode')
-                    or value in _PLACEHOLDER_SECRETS
+                    or self._is_placeholder_or_example_secret(value)
                 ):
                     raise ValueError(
                         f"FATAL: {attr} must be explicitly configured with a non-placeholder secret in {self.environment}."
@@ -193,8 +222,7 @@ class Settings(Base):
                 value: str = getattr(self, attr, '').strip()
                 if (
                     not value
-                    or value.startswith('placeholder-change-it-in-production-mode')
-                    or value in _PLACEHOLDER_SECRETS
+                    or self._is_placeholder_or_example_secret(value)
                 ):
                     object.__setattr__(self, attr, secrets.token_urlsafe(48))
 

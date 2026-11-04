@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Sequence
 import logging
 from pathlib import Path
@@ -72,6 +73,14 @@ class AuthorizationService:
 
     _enforcer: DomainAsyncEnforcer | None = None
     _last_loaded: float = 0.0
+    _refresh_lock: asyncio.Lock | None = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Returns the lazily initialized asyncio.Lock bound to the current running event loop."""
+        if cls._refresh_lock is None:
+            cls._refresh_lock = asyncio.Lock()
+        return cls._refresh_lock
 
     @classmethod
     async def initialize(cls, engine: AsyncEngine) -> DomainAsyncEnforcer:
@@ -96,6 +105,7 @@ class AuthorizationService:
 
         cls._enforcer = enforcer
         cls._last_loaded = time.monotonic()
+        cls._refresh_lock = asyncio.Lock()
 
         if not enforcer.get_policy():
             logger.warning(
@@ -131,11 +141,47 @@ class AuthorizationService:
 
     @classmethod
     async def check_and_refresh_cache(cls) -> None:
-        """Checks policy cache TTL and reloads if expired."""
-        if cls._enforcer is not None:
-            ttl = getattr(settings, "authz_cache_ttl_seconds", 5)
-            if time.monotonic() - cls._last_loaded > ttl:
+        """Checks policy cache TTL and reloads with single-flight locking if expired."""
+        ttl = getattr(settings, "authz_cache_ttl_seconds", 5)
+        if ttl <= 0 or cls._enforcer is None:
+            return
+        now = time.monotonic()
+        if (now - cls._last_loaded) < ttl:
+            return
+        async with cls._get_lock():
+            if (time.monotonic() - cls._last_loaded) >= ttl:
                 await cls.reload()
+
+    @classmethod
+    async def is_allowed_async(
+        cls,
+        *,
+        user_id: int,
+        role: str,
+        resource: str,
+        action: str,
+        domain: str = GLOBAL_DOMAIN,
+    ) -> bool:
+        """Ensures policy cache is fresh and evaluates the 4-tuple Casbin permission.
+
+        Args:
+            user_id: Primary key of the authenticated user.
+            role: The primary role name of the user (e.g. 'admin', 'user').
+            resource: Target resource token.
+            action: Action token.
+            domain: Target domain token (defaults to 'global').
+
+        Returns:
+            True if permission is granted by any active policy; False otherwise.
+        """
+        await cls.check_and_refresh_cache()
+        return cls.is_allowed(
+            user_id=user_id,
+            role=role,
+            resource=resource,
+            action=action,
+            domain=domain,
+        )
 
     @classmethod
     async def seed_default_policies(cls) -> int:
@@ -254,3 +300,4 @@ class AuthorizationService:
         """Resets the singleton enforcer reference. Intended strictly for test teardown."""
         cls._enforcer = None
         cls._last_loaded = 0.0
+        cls._refresh_lock = None

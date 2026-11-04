@@ -36,6 +36,8 @@ class UserResponse(Base):
 class UserUpdate(Base):
     """Schema for partial user updates (PATCH semantics: omitted is allowed, explicit null is not)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, min_length=1, max_length=100)
     """Updated display name."""
 
@@ -52,4 +54,3 @@ class UserUpdate(Base):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"'{field_name}' cannot be null.")
         return self
-

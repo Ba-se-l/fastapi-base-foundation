@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 PASSWORD_MAX_LENGTH = 100
@@ -47,6 +47,8 @@ def validate_pass(pwd: str) -> str:
 class RegisterRequest(BaseModel):
     """Schema for user registration request."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., min_length=1, max_length=100)
     """The user's full display name."""
 
@@ -78,6 +80,8 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     """Schema for user login request."""
+
+    model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
     """The user's registered email address."""
@@ -115,12 +119,21 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Schema for token refresh request."""
 
-    refresh_token: str | None = Field(default=None)
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+        description="Encoded JWT refresh token (optional when provided via Cookie).",
+    )
     """The current valid refresh token to exchange for new tokens (optional when provided via Cookie)."""
 
 
 class ChangePasswordRequest(BaseModel):
     """Schema for authenticated user password change request."""
+
+    model_config = ConfigDict(extra="forbid")
 
     old_password: str = Field(..., min_length=1, max_length=PASSWORD_MAX_LENGTH)
     """The user's current plain-text password for verification."""

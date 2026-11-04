@@ -9,7 +9,7 @@ from .enum import (
 
 
 from .event_bus import event_bus
-from .rate_limit import RateLimiter, reset_all_rate_limiters
+from .rate_limit import RateLimitBackend, RateLimitDecision, RateLimiter, reset_all_rate_limiters
 
 from .responses import (
     ErrorDetail,
@@ -53,6 +53,8 @@ __all__ = (
 
     'event_bus',
     'RateLimiter',
+    'RateLimitDecision',
+    'RateLimitBackend',
     'reset_all_rate_limiters',
 
     'TokenPayload',

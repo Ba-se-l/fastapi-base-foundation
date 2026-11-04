@@ -1,9 +1,35 @@
-import time
 from collections import OrderedDict
+from dataclasses import dataclass
+import time
+from typing import Protocol, runtime_checkable
 from fastapi import HTTPException, Request, status
 
 from src.settings import settings
 from src.share.helpers import resolve_client_ip
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    """Immutable result of a rate-limit quota consumption check.
+
+    Attributes:
+        allowed: True if the request is within the permitted sliding window quota.
+        remaining: Number of remaining allowed requests in the current window.
+        retry_after_seconds: Seconds until the client may retry when allowed is False.
+    """
+    allowed: bool
+    remaining: int
+    retry_after_seconds: int = 0
+
+
+@runtime_checkable
+class RateLimitBackend(Protocol):
+    """Structural protocol for pluggable rate-limiting storage backends (In-Memory or Redis)."""
+
+    def consume(self, key: str, limit: int, window_seconds: int) -> RateLimitDecision:
+        """Consumes one unit from the quota bucket for the specified key."""
+        ...
+
 
 _ACTIVE_LIMITERS: list["RateLimiter"] = []
 

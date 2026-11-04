@@ -14,7 +14,7 @@ from src.database import AsyncEngineLocal, AsyncSessionLocal
 from src.modules.audit.model import AuditLog
 from src.modules.auth.schemas import RegisterRequest
 from src.modules.user import User, UserRepository
-from src.security import AuthorizationService, hash_password
+from src.security import AuthorizationNotInitializedError, AuthorizationService, hash_password
 from src.share import Action, Resource, Roles
 
 ROLE_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{1,49}$')
@@ -24,7 +24,7 @@ async def get_or_init_enforcer():
     """Returns the cached enforcer or initializes with AsyncEngineLocal if uninitialized."""
     try:
         return AuthorizationService.get_enforcer()
-    except Exception:
+    except AuthorizationNotInitializedError:
         return await AuthorizationService.initialize(AsyncEngineLocal)
 
 
@@ -166,10 +166,11 @@ async def handle_create_admin(args: argparse.Namespace) -> None:
             security_version=1,
         )
         created = await user_repo.create(admin_user)
+        await session.flush()
         await record_cli_audit_event(
             session=session,
             action="CLI_ADMIN_CREATED",
-            target_id=created.id,
+            target_id=str(created.id),
             extra_data={"email": created.email, "role": Roles.ADMIN.value},
             entity_type="user",
         )

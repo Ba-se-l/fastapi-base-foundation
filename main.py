@@ -110,10 +110,7 @@ async def security_headers_middleware(request: Request, call_next):
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data:; frame-ancestors 'none';",
+            settings.content_security_policy,
         )
         if settings.environment in (Environment.STAGING, Environment.PRO, Environment.PROD):
             response.headers.setdefault(

@@ -11,7 +11,7 @@
     <a href="https://casbin.org/"><img src="https://img.shields.io/badge/PyCasbin-RBAC_Engine-0052CC.svg?style=flat" alt="PyCasbin RBAC"></a>
     <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/Toolchain-uv-DE5FE9.svg?style=flat" alt="uv Package Manager"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat" alt="MIT License"></a>
-    <img src="https://img.shields.io/badge/الاختبارات-106%2F106_ناجح-brightgreen.svg?style=flat" alt="106/106 Tests Passing">
+    <img src="https://img.shields.io/badge/الاختبارات-106%2F106_ناجح-brightgreen.svg?style=flat" alt="115/115 Tests Passing">
   </p>
 
   <p>

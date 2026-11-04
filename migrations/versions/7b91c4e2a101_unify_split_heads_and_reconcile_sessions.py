@@ -71,5 +71,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    pass
+    with op.batch_alter_table("refresh_sessions", schema=None) as batch_op:
+        batch_op.alter_column(
+            "family_id",
+            existing_type=sa.String(length=64),
+            server_default="legacy",
+            existing_nullable=False,
+        )
 

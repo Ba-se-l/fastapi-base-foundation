@@ -27,8 +27,11 @@ from .repo import UserRepository
 from .schemas import UserUpdate
 
 
-def _has_permission(actor: User, resource: Resource, action: Action) -> bool:
+async def _has_permission(actor: User, resource: Resource, action: Action) -> bool:
     """Evaluates a Casbin permission for an actor using primitive identity fields.
+
+    Ensures the Casbin policy cache is refreshed if the configured TTL has expired,
+    guaranteeing immediate enforcement of policies modified out-of-band.
 
     Args:
         actor: Authenticated User ORM instance.
@@ -38,7 +41,7 @@ def _has_permission(actor: User, resource: Resource, action: Action) -> bool:
     Returns:
         True if the permission is granted; False otherwise.
     """
-    return AuthorizationService.is_allowed(
+    return await AuthorizationService.is_allowed_async(
         user_id=actor.id,
         role=actor.role.value,
         resource=resource.value,
@@ -95,7 +98,7 @@ async def get_user_by_id(
         UserNotFoundException: If user does not exist.
     """
     # Security Rule: Authorize BEFORE querying to prevent User Enumeration attacks
-    if getter.id != user_id and not _has_permission(getter, Resource.USERS, Action.READ):
+    if getter.id != user_id and not await _has_permission(getter, Resource.USERS, Action.READ):
         await event_bus.publish(
             event=UserAccessDenied(
                 audit_ctx=audit_ctx,
@@ -155,7 +158,7 @@ async def update_user(
         UserInactiveException: If target user account is deactivated.
     """
     # 1. Authorize: Only Admin or Self can modify
-    if updater.id != user_id and not _has_permission(updater, Resource.USERS, Action.UPDATE):
+    if updater.id != user_id and not await _has_permission(updater, Resource.USERS, Action.UPDATE):
         await event_bus.publish(
             event=UserAccessDenied(
                 audit_ctx=audit_ctx,
@@ -168,7 +171,7 @@ async def update_user(
         raise AccessDeniedException('You are not authorized to modify this user.')
 
     # 2. Authorize: Role escalation restriction
-    if schema.role is not None and not _has_permission(updater, Resource.USERS, Action.ASSIGN_ROLE):
+    if schema.role is not None and not await _has_permission(updater, Resource.USERS, Action.ASSIGN_ROLE):
         await event_bus.publish(
             event=UserAccessDenied(
                 audit_ctx=audit_ctx,

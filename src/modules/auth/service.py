@@ -24,6 +24,7 @@ from src.security import (
     decode_refresh_token,
     hash_password,
     hash_password_async,
+    verify_dummy_password_async,
     verify_password,
     verify_password_async,
     verify_and_update,
@@ -55,9 +56,17 @@ from .repo import RefreshSessionRepository
 from .schemas import ChangePasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 
 
-async def verify_dummy_password_async(plain_password: str) -> None:
-    """Invokes dummy password verification off the event loop using local verify_password."""
-    await asyncio.to_thread(verify_password, plain_password, SECURITY_PASSWORD_HASH)
+def _is_duplicate_email_integrity_error(exc: IntegrityError) -> bool:
+    """Determines whether an IntegrityError was caused by a duplicate user email constraint.
+
+    Args:
+        exc: The caught SQLAlchemy IntegrityError instance.
+
+    Returns:
+        True if the error message/constraint indicates a unique email violation.
+    """
+    raw_msg = str(getattr(exc, "orig", exc)).lower()
+    return any(marker in raw_msg for marker in ("email", "uq_users_email", "ix_users_email", "unique"))
 
 
 async def _issue_token_pair(
@@ -179,7 +188,7 @@ async def register_user(
     try:
         user = await user_repo.create(instance=instance)
         await session.flush()
-    except IntegrityError:
+    except IntegrityError as ie:
         await event_bus.publish(
             event=AuthRegistrationFailed(
                 audit_ctx=audit_ctx,
@@ -188,7 +197,9 @@ async def register_user(
             ),
             session=session,
         )
-        raise UserAlreadyExistsException(field='email', value=schema.email)
+        if _is_duplicate_email_integrity_error(ie):
+            raise UserAlreadyExistsException(field='email', value=schema.email) from ie
+        raise
 
     await event_bus.publish(
         event=AuthUserRegistered(

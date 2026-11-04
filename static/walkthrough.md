@@ -41,7 +41,7 @@
 * `GET /ui/` -> استجابة `200 OK` بنوع `text/html`.
 * كافة ملفات الـ CSS (3 ملفات) والـ JS (17 ملفاً) تقدم برمز `200 OK` وترويسات MIME قياسية (`text/css`, `text/javascript`).
 
-### د. اختبار دورة العمل المتكاملة ([`test_ui_workbench_e2e.py`](file:///d:/_Python%20Projects-27-05-2026/fastapi-base-structure-tests/tests/test_ui_workbench_e2e.py))
+### د. اختبار دورة العمل المتكاملة ([`test_ui_workbench.py`](../tests/app/test_ui_workbench.py))
 تم بناء اختبار تكاملي مخصص يعكس كافة سيناريوهات الواجهة:
 1. زر **⚡ 1-Click Demo Setup**: إنشاء مستخدم تجريبي وتسجيل الدخول المتزامن للجهازين A و B.
 2. تتبع سلالة التوكن: التأكد من مطابقة `fid` وتوليد `jti` فريد لكل جهاز.

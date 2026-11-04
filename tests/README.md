@@ -1,6 +1,6 @@
 # 🧪 Test Suite Architecture & Verification Guide (`tests/`)
 
-[![Tests](https://img.shields.io/badge/pytest-106%20passed-brightgreen.svg?style=flat-square&logo=pytest)](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests)
+[![Tests](https://img.shields.io/badge/pytest-115%20passed-brightgreen.svg?style=flat-square&logo=pytest)](.)
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg?style=flat-square&logo=python)](pyproject.toml)
 [![Architecture](https://img.shields.io/badge/architecture-mirrored%20modular-orange.svg?style=flat-square)](tests)
 
@@ -37,7 +37,7 @@ The test suite enforces four foundational principles:
 
 3. **In-Process ASGI Networking (`httpx.AsyncClient`):**
    * Network interactions run in-process through `ASGITransport(app=app)`.
-   * Zero socket binding, zero port collisions, and sub-millisecond roundtrips (the full 106-test suite executes in ~3 seconds).
+   * Zero socket binding, zero port collisions, and sub-millisecond roundtrips (the full 115-test suite executes in ~3 seconds).
 
 4. **Decoupled Support Infrastructure:**
    * Modules **never import from `conftest` directly** (avoiding pytest runtime anti-patterns).
@@ -106,18 +106,18 @@ tests/
 
 To prevent circular dependencies and comply with modern pytest guidelines prohibiting direct imports from `conftest`, test utilities are encapsulated in `tests/support/`:
 
-* **[`tests/support/database.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/database.py)**:
+* **[`tests/support/database.py`](support/database.py)**:
   * `TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"`
   * `test_engine`: Async SQLAlchemy engine instance configured with `echo=False`.
   * `TestSessionLocal`: Async sessionmaker configured with `expire_on_commit=False` and `autoflush=False`.
-* **[`tests/support/paths.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/paths.py)**:
+* **[`tests/support/paths.py`](support/paths.py)**:
   * `PROJECT_ROOT`: Absolute `Path` to project root.
   * `ALEMBIC_INI`: Absolute `Path` to `alembic.ini`.
-  * `STATIC_DIR`: Absolute `Path` to `src/app/static`.
+  * `STATIC_DIR`: Absolute `Path` to `static/`.
 
 ### `tests/conftest.py` Global Fixtures
 
-File: [`tests/conftest.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/conftest.py)
+File: [`tests/conftest.py`](conftest.py)
 
 | Fixture Name | Scope | Description |
 |---|---|---|
@@ -136,7 +136,7 @@ The test suite defines and registers strict markers in `pyproject.toml` (`--stri
 |---|---|---|---|
 | `release_gate` | `uv run --frozen pytest -m release_gate` | **15 tests** | Verifies non-negotiable architectural release contracts (`RG-01` through `RG-15`). |
 | `security_audit` | `uv run --frozen pytest -m security_audit` | **18 tests** | Verifies deep cryptographic and vulnerability invariants (`SEC-01` through `SEC-18`). |
-| *All tests* | `uv run --frozen pytest` | **106 tests** | Executes the complete test suite. |
+| *All tests* | `uv run --frozen pytest` | **115 tests** | Executes the complete test suite. |
 
 ---
 

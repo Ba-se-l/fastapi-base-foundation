@@ -5,16 +5,15 @@ from src.database import BaseModel as Base
 
 
 class CasbinRule(Base):
-    """Persistent storage row for a single Casbin policy or grouping line.
+    """SQLAlchemy ORM entity mapping the 4-tuple PyCasbin policy table (casbin_rule).
 
-    The semantic meaning of v0..v5 depends on the model specification in
-    rbac_model.conf. For standard policies ('p'):
-        v0: Subject (role name or 'user:<id>')
-        v1: Resource (object namespace)
-        v2: Action (permitted operation)
-    For grouping policies ('g'):
-        v0: Member (user subject or child role)
-        v1: Parent role
+    Column Mapping for 4-Tuple Domain RBAC:
+        - ptype: Policy type ('p' for permission policy, 'g' for role grouping policy).
+        - v0: Subject (Role name or user identifier, e.g., 'admin', 'user').
+        - v1: Domain / Tenant identifier (e.g., 'global' or specific tenant ID).
+        - v2: Resource identifier (for 'p' rules, e.g., 'users', 'audit', '*') or Assigned Role (for 'g' rules).
+        - v3: Action identifier (for 'p' rules, e.g., 'read', 'create', '*').
+        - v4, v5: Reserved optional extension columns for future ABAC predicates.
 
     Attributes:
         id: Primary key unique identifier.

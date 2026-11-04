@@ -1,12 +1,17 @@
 /**
- * Multi-Device Session Store (SEC-08 Hardened)
- * Uses sessionStorage (tab-isolated, cleared on window close) instead of permanent localStorage.
- * Manages concurrent virtual devices (Device A vs Device B) and Replay Test Buffer.
+ * Multi-Device Session Store (SEC-08 & SEC-32 Hardened)
+ * Retains raw cryptographic JWT credentials inside an isolated in-memory ES module closure vault
+ * (_tokenMemoryVault), writing only redacted metadata markers to sessionStorage.
+ * Prevents credential harvesting via Web Storage inspection while supporting tab persistence.
  */
 import { decodeJwt } from './jwt-decoder.js';
 import { eventBus } from './event-emitter.js';
 
 const STORAGE_KEY = 'fastapi_workbench_sessions_v1';
+const VAULT_MARKER = '[VAULT_IN_MEMORY]';
+
+// Module-scoped in-memory vault inaccessible to external scripts/DOM inspection
+const _tokenMemoryVault = new Map();
 
 class SessionStore {
     constructor() {
@@ -30,7 +35,21 @@ class SessionStore {
         try {
             if (storage) {
                 const raw = storage.getItem(STORAGE_KEY);
-                if (raw) return JSON.parse(raw);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    // Re-link tokens from memory vault if available
+                    for (const slot of ['device_a', 'device_b']) {
+                        if (parsed[slot] && _tokenMemoryVault.has(slot)) {
+                            const vaultData = _tokenMemoryVault.get(slot);
+                            parsed[slot].accessToken = vaultData.accessToken;
+                            parsed[slot].refreshToken = vaultData.refreshToken;
+                        }
+                    }
+                    if (parsed.replayBuffer && _tokenMemoryVault.has('replayBuffer')) {
+                        parsed.replayBuffer.token = _tokenMemoryVault.get('replayBuffer');
+                    }
+                    return parsed;
+                }
             } else if (this.memoryFallback) {
                 return this.memoryFallback;
             }
@@ -41,16 +60,30 @@ class SessionStore {
             activeSlot: 'device_a',
             device_a: null,
             device_b: null,
-            replayBuffer: null, // { token, deviceSlot, rotatedAt, previousFid, previousJti }
+            replayBuffer: null,
             customRequestId: '',
         };
+    }
+
+    _getSanitizedState() {
+        const copy = JSON.parse(JSON.stringify(this.state));
+        for (const slot of ['device_a', 'device_b']) {
+            if (copy[slot]) {
+                copy[slot].accessToken = copy[slot].accessToken ? VAULT_MARKER : null;
+                copy[slot].refreshToken = copy[slot].refreshToken ? VAULT_MARKER : null;
+            }
+        }
+        if (copy.replayBuffer && copy.replayBuffer.token) {
+            copy.replayBuffer.token = VAULT_MARKER;
+        }
+        return copy;
     }
 
     _save() {
         const storage = this._getStorage();
         if (storage) {
             try {
-                storage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+                storage.setItem(STORAGE_KEY, JSON.stringify(this._getSanitizedState()));
             } catch (e) {
                 console.error('Failed to write to sessionStorage:', e);
             }
@@ -79,7 +112,13 @@ class SessionStore {
     setSession(slot, { accessToken, refreshToken = null, user = null }) {
         const decodedAccess = accessToken ? decodeJwt(accessToken) : null;
         const decodedRefresh = refreshToken ? decodeJwt(refreshToken) : null;
-        
+
+        // Store raw tokens in module-level RAM vault
+        _tokenMemoryVault.set(slot, {
+            accessToken: accessToken || null,
+            refreshToken: refreshToken || null,
+        });
+
         this.state[slot] = {
             accessToken,
             refreshToken: refreshToken || null,
@@ -93,11 +132,15 @@ class SessionStore {
 
     clearSession(slot = null) {
         const targetSlot = slot || this.getActiveSlot();
+        _tokenMemoryVault.delete(targetSlot);
         this.state[targetSlot] = null;
         this._save();
     }
 
     clearAllSessions() {
+        _tokenMemoryVault.delete('device_a');
+        _tokenMemoryVault.delete('device_b');
+        _tokenMemoryVault.delete('replayBuffer');
         this.state.device_a = null;
         this.state.device_b = null;
         this.state.replayBuffer = null;
@@ -111,6 +154,7 @@ class SessionStore {
                 storage.removeItem(STORAGE_KEY);
             } catch (e) {}
         }
+        _tokenMemoryVault.clear();
         this.memoryFallback = null;
         this.state = {
             activeSlot: 'device_a',
@@ -124,6 +168,9 @@ class SessionStore {
 
     // Replay Attack Test Buffer
     setReplayBuffer(data) {
+        if (data && data.token) {
+            _tokenMemoryVault.set('replayBuffer', data.token);
+        }
         this.state.replayBuffer = {
             ...data,
             capturedAt: new Date().toISOString(),
@@ -136,6 +183,7 @@ class SessionStore {
     }
 
     clearReplayBuffer() {
+        _tokenMemoryVault.delete('replayBuffer');
         this.state.replayBuffer = null;
         this._save();
     }
