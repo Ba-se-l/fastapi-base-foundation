@@ -7,17 +7,19 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from src.settings import settings
+from tests.support.paths import ALEMBIC_INI
 
 
-@pytest.mark.asyncio
-async def test_migration_legacy_family_id_and_security_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_migration_legacy_family_id_and_security_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verifies that 6aa8f9bfed61 isolates legacy session families and increments security_version."""
     db_file = tmp_path / "test_migration.db"
     db_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
     monkeypatch.setattr(settings, "database_url", db_url)
 
-    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
-    cfg = Config(str(ini_path))
+    cfg = Config(str(ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", db_url)
 
     # 1. Upgrade up to 1481b1cdf6a4
@@ -95,15 +97,16 @@ async def test_migration_legacy_family_id_and_security_version(tmp_path: Path, m
     assert len(script.get_heads()) == 1
 
 
-@pytest.mark.asyncio
-async def test_migration_clean_upgrade_and_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_migration_clean_upgrade_and_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verifies that an empty database upgrades to head without drift."""
     db_file = tmp_path / "clean_migration.db"
     db_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
     monkeypatch.setattr(settings, "database_url", db_url)
 
-    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
-    cfg = Config(str(ini_path))
+    cfg = Config(str(ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", db_url)
 
     await asyncio.to_thread(command.upgrade, cfg, "head")

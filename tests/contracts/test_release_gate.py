@@ -36,13 +36,16 @@ from src.security import (
 )
 from src.settings import settings
 from src.share import Roles
-from tests.conftest import TestSessionLocal
+from tests.support.database import TestSessionLocal
+from tests.support.paths import ALEMBIC_INI
+
+pytestmark = [pytest.mark.release_gate]
 
 
 @pytest.mark.asyncio
 async def test_rg01_single_alembic_head_and_no_schema_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """RG-01: Verifies single alembic head and clean schema upgrade with zero drift (N01)."""
-    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
+    ini_path = ALEMBIC_INI
     cfg = Config(str(ini_path))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()

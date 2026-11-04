@@ -1,24 +1,27 @@
 import pytest
 from httpx import AsyncClient
 
-from src.share import Roles
+from tests.support.paths import STATIC_DIR
 
 
-@pytest.mark.asyncio
+async def test_ui_redirect(client: AsyncClient) -> None:
+    """Verifies that GET /ui redirects to /ui/."""
+    response = await client.get("/ui", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/ui/"
+
+
+async def test_ui_mount_serves_html(client: AsyncClient) -> None:
+    """Verifies that GET /ui/ serves static index.html with text/html content-type."""
+    response = await client.get("/ui/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Enterprise API Workbench" in response.text
+    assert '<base href="/ui/">' in response.text
+
+
 async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
-    """Verifies the complete end-to-end workflow automated by the UI Workbench:
-    
-    1. 1-Click Demo Setup: Register + Dual Device concurrent login (Device A & Device B).
-    2. Token Inspection: Verifies unique lineage (fid, jti, sec_ver).
-    3. Token Rotation: Refreshes Device A token, checks same fid and new jti.
-    4. Replay Attack Simulator: Replays revoked token, receives 401 TOKEN_REVOKED.
-    5. Smart Isolation: Device B access token remains valid after Device A replay breach.
-    6. Users & RBAC: Profile inspection, PATCH name, and explicit null 422 rejection.
-    7. Audit Trail: Query logs and download formatted Markdown audit export.
-    """
-    # -------------------------------------------------------------
-    # 1. 1-Click Demo Setup: Register & Dual Device Login
-    # -------------------------------------------------------------
+    """Verifies the complete end-to-end workflow automated by the UI Workbench."""
     demo_email = "workbench.demo@enterprise.io"
     demo_pass = "WorkbenchP@ss123!"
     demo_name = "Workbench Demo User"
@@ -56,9 +59,7 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     assert access_a != access_b
     assert refresh_a_1 != refresh_b
 
-    # -------------------------------------------------------------
-    # 2. Token Rotation on Device A
-    # -------------------------------------------------------------
+    # Token Rotation on Device A
     rot_a = await client.post(
         "/api/v1/auth/refresh",
         json={"refresh_token": refresh_a_1},
@@ -69,9 +70,7 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     refresh_a_2 = new_token_a_data["refresh_token"]
     assert refresh_a_2 != refresh_a_1
 
-    # -------------------------------------------------------------
-    # 3. Simulate Replay Attack with Revoked refresh_a_1
-    # -------------------------------------------------------------
+    # Simulate Replay Attack with Revoked refresh_a_1
     replay_res = await client.post(
         "/api/v1/auth/refresh",
         json={"refresh_token": refresh_a_1},
@@ -79,9 +78,7 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     assert replay_res.status_code == 401
     assert replay_res.json()["error"]["code"] == "TOKEN_REVOKED"
 
-    # -------------------------------------------------------------
-    # 4. Smart Device Isolation: Device B remains active
-    # -------------------------------------------------------------
+    # Smart Device Isolation: Device B remains active
     me_b = await client.get(
         "/api/v1/users/me",
         headers={"Authorization": f"Bearer {access_b}"},
@@ -89,10 +86,7 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     assert me_b.status_code == 200
     assert me_b.json()["email"] == demo_email
 
-    # -------------------------------------------------------------
-    # 5. User Profile Update & Guardrails
-    # -------------------------------------------------------------
-    # Valid PATCH update
+    # User Profile Update & Guardrails
     patch_ok = await client.patch(
         f"/api/v1/users/{user_id}",
         headers={"Authorization": f"Bearer {access_b}"},
@@ -101,7 +95,7 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     assert patch_ok.status_code == 200
     assert patch_ok.json()["name"] == "Architect Master"
 
-    # Explicit null rejection (Guardrail test 02)
+    # Explicit null rejection
     patch_null = await client.patch(
         f"/api/v1/users/{user_id}",
         headers={"Authorization": f"Bearer {access_b}"},
@@ -109,13 +103,27 @@ async def test_workbench_full_lifecycle_e2e(client: AsyncClient) -> None:
     )
     assert patch_null.status_code == 422
 
-    # -------------------------------------------------------------
-    # 6. Audit Trail & Export
-    # -------------------------------------------------------------
-    # As standard user, audit log access is restricted by RBAC (Casbin)
+    # Audit Trail: As standard user, audit log access is restricted by RBAC (Casbin)
     audit_forbidden = await client.get(
         "/api/v1/audit/logs",
         headers={"Authorization": f"Bearer {access_b}"},
     )
     assert audit_forbidden.status_code == 403
     assert audit_forbidden.json()["error"]["code"] == "ACCESS_DENIED"
+
+
+@pytest.mark.security_audit
+def test_sec_08_09_workbench_static_hardening():
+    """TEST-SEC-08/09: Verifies sessionStorage usage and sensitive payload/header redaction in static files."""
+    session_store_path = STATIC_DIR / "js" / "core" / "session-store.js"
+    assert session_store_path.exists()
+    content_store = session_store_path.read_text(encoding="utf-8")
+    assert "sessionStorage" in content_store
+    assert "purgeAllSessions" in content_store
+
+    http_client_path = STATIC_DIR / "js" / "core" / "http-client.js"
+    assert http_client_path.exists()
+    content_client = http_client_path.read_text(encoding="utf-8")
+    assert "redactSensitivePayload" in content_client
+    assert "redactSensitiveHeaders" in content_client
+    assert "[REDACTED]" in content_client

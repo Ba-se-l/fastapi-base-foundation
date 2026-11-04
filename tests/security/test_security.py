@@ -14,12 +14,12 @@ from src.share import TokenType
 
 def test_password_hashing_and_verification():
     """Verifies password hashing is deterministic and salted."""
-    password = 'P@ssword123!'
+    password = "P@ssword123!"
     hashed = hash_password(password)
 
     assert hashed != password
     assert verify_password(password=password, hashed_password=hashed) is True
-    assert verify_password(password='WrongPassword123!', hashed_password=hashed) is False
+    assert verify_password(password="WrongPassword123!", hashed_password=hashed) is False
 
 
 def test_access_token_creation_and_decoding():
@@ -52,5 +52,5 @@ def test_access_token_type_mismatch():
     user_id = 1
     token, _ = create_refresh_token(user_id=user_id)
 
-    with pytest.raises(InvalidCredentialsException):
+    with pytest.raises(InvalidCredentialsException, match="Invalid token type"):
         decode_access_token(token=token)

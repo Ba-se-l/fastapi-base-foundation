@@ -1,300 +1,250 @@
-# 🧪 Test Suite Documentation & Architecture Reference
+# 🧪 Test Suite Architecture & Verification Guide (`tests/`)
 
-This directory contains the comprehensive automated testing suite for the **FastAPI Base Structure** foundation. It provides isolated unit tests, end-to-end integration workflows, and role-based access control (RBAC) security verification.
+[![Tests](https://img.shields.io/badge/pytest-106%20passed-brightgreen.svg?style=flat-square&logo=pytest)](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests)
+[![Python](https://img.shields.io/badge/python-3.13-blue.svg?style=flat-square&logo=python)](pyproject.toml)
+[![Architecture](https://img.shields.io/badge/architecture-mirrored%20modular-orange.svg?style=flat-square)](tests)
+
+This directory contains the automated test suite for the **FastAPI Base Foundation**. The suite is structured as a mirrored modular hierarchy following modern pytest industry best practices, testing standards, and zero-regression guardrails.
 
 ---
 
 ## Table of Contents
-1. [Architecture & Testing Philosophy](#1-architecture--testing-philosophy)
-2. [Prerequisites & Environment Setup](#2-prerequisites--environment-setup)
-3. [Configuration & Global Fixtures (`conftest.py`)](#3-configuration--global-fixtures-conftestpy)
-4. [File-by-File Technical Deep Dive](#4-file-by-file-technical-deep-dive)
-   - [`test_security.py`](#test_securitypy--cryptography--jwt-tokens)
-   - [`test_health.py`](#test_healthpy--system-probes)
-   - [`test_auth_flow.py`](#test_auth_flowpy--authentication-lifecycle)
-   - [`test_user_rbac.py`](#test_user_rbacpy--rbac--pagination)
-   - [`test_audit_logging.py`](#test_audit_loggingpy--audit-trail--portable-logging)
-   - [`test_migrations.py`](#test_migrationspy--alembic-migrations--schema-synchronization)
-   - [`test_input_hardening.py`](#test_input_hardeningpy--input-hardening--validation-sanitization)
-   - [`test_settings_and_context.py`](#test_settings_and_contextpy--proxy-resolution--settings-hardening)
-   - [`test_password_change.py`](#test_password_changepy--password-change--session-invalidation)
-   - [`test_casbin_authorization.py`](#test_casbin_authorizationpy--granular-casbin-rbac-policies)
-   - [`test_security_invariants.py`](#test_security_invariantspy--security-invariants--session-isolation)
-5. [CLI Execution Guide](#5-cli-execution-guide)
-6. [Data Contracts & Payload Reference (Positive vs. Negative)](#6-data-contracts--payload-reference-positive-vs-negative)
-7. [Troubleshooting & Best Practices](#7-troubleshooting--best-practices)
+1. [Core Testing Philosophy](#1-core-testing-philosophy)
+2. [Directory Architecture (Mirrored Structure)](#2-directory-architecture-mirrored-structure)
+3. [Shared Test Support & Fixture Layer](#3-shared-test-support--fixture-layer)
+   - [`tests/support/`](#testssupport-decoupled-test-utilities)
+   - [`tests/conftest.py`](#testsconftestpy-global-fixtures)
+4. [Test Markers & Verification Gates](#4-test-markers--verification-gates)
+5. [Modular File-by-File Technical Reference](#5-modular-file-by-file-technical-reference)
+6. [CLI Execution Guide](#6-cli-execution-guide)
+7. [Data Contracts & Payload Reference](#7-data-contracts--payload-reference)
+8. [Authoring New Tests & Best Practices](#8-authoring-new-tests--best-practices)
 
 ---
 
-## 1. Architecture & Testing Philosophy
+## 1. Core Testing Philosophy
 
-The test suite is built on four core principles:
+The test suite enforces four foundational principles:
 
-1. **Complete Database Isolation (In-Memory SQLite):**
-   * Tests run against `sqlite+aiosqlite:///:memory:`.
-   * **Zero contamination:** The physical development database (`database.db`) is never touched during test runs.
-   * Tables are created and dropped per test run to guarantee clean state.
+1. **Mirrored Domain Isolation:**
+   * Test files mirror the exact layout of `src/` (e.g. `src/modules/auth/` → `tests/modules/auth/`).
+   * Tests are granularly scoped: auth flows, session hardening, and cookie/CSRF transports reside in distinct, focused modules.
 
-2. **Zero Network Overhead (`ASGITransport`):**
-   * All HTTP requests are executed in-process using `httpx.AsyncClient` with `ASGITransport(app=app)`.
-   * No actual TCP sockets or web servers are opened, resulting in sub-millisecond request cycles and ultra-fast execution (~3 seconds for the full suite of 64 tests).
+2. **Complete Database Isolation (`sqlite+aiosqlite:///:memory:`):**
+   * All persistence tests run against an isolated in-memory SQLite database.
+   * **Zero contamination:** Physical development databases (`database.db`) are never read or touched.
+   * Tables are created and dropped atomically per test via an autouse fixture.
 
-3. **Dependency Injection Overrides:**
-   * FastAPI's `dependency_overrides` mechanism is leveraged to dynamically replace the production database session dependency `get_session` with an isolated test transaction generator.
+3. **In-Process ASGI Networking (`httpx.AsyncClient`):**
+   * Network interactions run in-process through `ASGITransport(app=app)`.
+   * Zero socket binding, zero port collisions, and sub-millisecond roundtrips (the full 106-test suite executes in ~3 seconds).
 
-4. **100% Asynchronous Native Flow:**
-   * All test cases are executed within native `asyncio` event loops using `pytest-asyncio` in auto mode (`asyncio_mode = "auto"`).
+4. **Decoupled Support Infrastructure:**
+   * Modules **never import from `conftest` directly** (avoiding pytest runtime anti-patterns).
+   * Shared test utilities, engines, sessionmakers, and anchor paths are exported cleanly from `tests.support`.
 
 ---
 
-## 2. Prerequisites & Environment Setup
+## 2. Directory Architecture (Mirrored Structure)
 
-The test suite requires development dependencies:
-* `pytest` (>= 9.0)
-* `pytest-asyncio` (>= 1.4)
-* `httpx` (>= 0.28)
-* `aiosqlite` (>= 0.22)
-
-To sync and install all required testing dependencies using `uv`:
-
-```bash
-uv sync
+```
+tests/
+├── app/                              # Application lifecycle, UI, & middleware
+│   ├── test_error_envelopes.py       # Standard RFC 7807 & custom JSON error envelopes
+│   ├── test_health.py                # Liveness (/health) & DB readiness (/health/ready) probes
+│   ├── test_input_hardening.py       # Pydantic v2 input stripping & bounds validation
+│   ├── test_middleware.py            # Trusted proxy headers, rate limiting, & SEC-17/18 doc guards
+│   └── test_ui_workbench.py          # /ui static mounting, asset serving, & SEC-08/09 guards
+├── cli/                              # Administrative CLI commands
+│   └── test_manage.py                # manage.py create-admin, validation, & SEC-16 headless flags
+├── contracts/                        # Architectural release gate contracts
+│   └── test_release_gate.py          # RG-01 through RG-15 non-negotiable architectural invariant tests
+├── database/                         # Core database behaviors
+│   └── test_base_repo.py             # BaseRepository deterministic pagination ordering & filtering
+├── migrations/                       # Schema evolution tests
+│   └── test_migrations.py           # Single Alembic head verification & alembic check drift detection
+├── modules/                          # Domain feature modules
+│   ├── audit/                        # Audit trail & logging
+│   │   ├── test_audit_db_disabled.py # Zero-breakage fallback when audit logging is disabled
+│   │   ├── test_audit_logging.py     # Service methods, context injection, & user event queries
+│   │   └── test_audit_model.py       # AuditLog model constraints, repr, & export formatting
+│   ├── auth/                         # Authentication & token mechanics
+│   │   ├── test_auth_flow.py         # End-to-end registration, login, refresh, & logout
+│   │   ├── test_events.py            # UserLoggedIn & UserRegistered event bus emission
+│   │   ├── test_password_change.py   # Password change, current password check, & security version bump
+│   │   ├── test_session_hardening.py # SEC-02 family fail-closed, replay detection, & CAS revocation
+│   │   └── test_transport_and_csrf.py# SEC-01 cookie transport, SEC-03 token stripping, & CSRF guards
+│   └── user/                         # User domain & RBAC
+│       ├── test_events.py            # UserUpdated & UserDeleted event bus emission
+│       ├── test_pagination.py        # Keyset & deterministic offset pagination edge cases
+│       ├── test_user_crud.py         # User retrieval, profile update, & deletion operations
+│       └── test_user_rbac.py         # Role-based access boundaries (ADMIN vs USER)
+├── security/                         # Security & Cryptography
+│   ├── test_authorization.py         # Casbin 4-tuple RBAC, wildcard evaluation, & SEC-10 caching
+│   ├── test_guards.py                # SEC-15 public registration dynamic guards
+│   └── test_security.py              # Argon2id hashing, JWT encoding/decoding, & token type safety
+├── settings/                         # Configuration & environment hardening
+│   └── test_settings.py              # Production safeguards, key entropy, proxy IP resolution, & SEC-04..07
+├── share/                            # Cross-cutting primitives
+│   ├── test_event_bus.py             # EventBus async handler execution & exception isolation
+│   ├── test_helpers.py               # Deterministic sorting, hashing, and date utilities
+│   └── test_rate_limit.py            # In-memory sliding window rate limiter & SEC-14 LRU eviction
+├── support/                          # Decoupled test support package (no conftest imports)
+│   ├── __init__.py                   # Package marker
+│   ├── database.py                   # TEST_DATABASE_URL, test_engine, & TestSessionLocal
+│   └── paths.py                      # PROJECT_ROOT, ALEMBIC_INI, & STATIC_DIR anchors
+├── conftest.py                       # Global fixtures & dependency injection overrides
+├── README.md                         # English test architecture documentation (this file)
+└── README_AR.md                      # Arabic test architecture documentation
 ```
 
-Alternatively, if managing packages manually:
-
-```bash
-uv add --dev pytest pytest-asyncio
-```
-
 ---
 
-## 3. Configuration & Global Fixtures (`conftest.py`)
+## 3. Shared Test Support & Fixture Layer
 
-File: [`tests/conftest.py`](conftest.py)
+### `tests/support/` Decoupled Test Utilities
 
-This file sets up the async database engine and defines the core fixtures shared across all tests:
+To prevent circular dependencies and comply with modern pytest guidelines prohibiting direct imports from `conftest`, test utilities are encapsulated in `tests/support/`:
 
-### Key Components
+* **[`tests/support/database.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/database.py)**:
+  * `TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"`
+  * `test_engine`: Async SQLAlchemy engine instance configured with `echo=False`.
+  * `TestSessionLocal`: Async sessionmaker configured with `expire_on_commit=False` and `autoflush=False`.
+* **[`tests/support/paths.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/support/paths.py)**:
+  * `PROJECT_ROOT`: Absolute `Path` to project root.
+  * `ALEMBIC_INI`: Absolute `Path` to `alembic.ini`.
+  * `STATIC_DIR`: Absolute `Path` to `src/app/static`.
 
-* `TEST_DATABASE_URL = 'sqlite+aiosqlite:///:memory:'`:
-  In-memory async connection string.
-* `test_engine`:
-  Dedicated `create_async_engine` instance configured with `echo=False`.
-* `TestSessionLocal`:
-  `async_sessionmaker` configured with `autoflush=False` and `expire_on_commit=False`.
+### `tests/conftest.py` Global Fixtures
 
-### Core Fixtures
+File: [`tests/conftest.py`](file:///d:/Code/github/Ba-se-l/fastapi-base-foundation-dev/tests/conftest.py)
 
 | Fixture Name | Scope | Description |
 |---|---|---|
-| `init_test_database` | Function (`autouse=True`) | Automatically creates all tables (`BaseModel.metadata.create_all`) before each test runs and drops them (`drop_all`) afterwards. |
+| `init_test_database` | Function (`autouse=True`) | Creates all SQLAlchemy tables (`BaseModel.metadata.create_all`) before each test runs and drops them (`drop_all`) upon teardown. |
 | `db_session` | Function | Yields an active `AsyncSession` bound to the in-memory test database for direct seed data insertions. |
 | `client` | Function | Yields an `httpx.AsyncClient` wired to the FastAPI application with `app.dependency_overrides[get_session]` active, cleaning overrides up upon teardown. |
+| `make_access_token` | Function | **Factory Fixture** returning an async helper `_make(user_id, security_version=1)` to generate signed JWTs without database roundtrips. |
 
 ---
 
-## 4. File-by-File Technical Deep Dive
+## 4. Test Markers & Verification Gates
 
-### `test_security.py` — Cryptography & JWT Tokens
-File: [`tests/test_security.py`](test_security.py)
+The test suite defines and registers strict markers in `pyproject.toml` (`--strict-markers` enabled):
 
-Pure unit tests verifying the cryptographic primitives and token encoding/decoding mechanics in `src/security`:
-
-* **`test_password_hashing_and_verification`**:
-  * Asserts that `hash_password(raw)` returns an Argon2id hash distinct from the plain text.
-  * Asserts that `verify_password` returns `True` for the correct password and `False` for incorrect inputs.
-* **`test_access_token_creation_and_decoding`**:
-  * Asserts that `create_access_token(user_id)` generates a valid JWT with claims: `sub`, `type=TokenType.ACCESS`, and expiration `exp`.
-* **`test_refresh_token_creation_and_decoding`**:
-  * Asserts that `create_refresh_token(user_id)` produces a tuple `(token, jti)`.
-  * Verifies that the token decodes to `type=TokenType.REFRESH` and matches the 32-character hexadecimal `jti`.
-* **`test_access_token_type_mismatch`**:
-  * Ensures that decoding a refresh token using `decode_access_token()` raises `InvalidCredentialsException` (preventing token type substitution attacks).
+| Marker | Filter Command | Test Count | Scope & Purpose |
+|---|---|---|---|
+| `release_gate` | `uv run --frozen pytest -m release_gate` | **15 tests** | Verifies non-negotiable architectural release contracts (`RG-01` through `RG-15`). |
+| `security_audit` | `uv run --frozen pytest -m security_audit` | **18 tests** | Verifies deep cryptographic and vulnerability invariants (`SEC-01` through `SEC-18`). |
+| *All tests* | `uv run --frozen pytest` | **106 tests** | Executes the complete test suite. |
 
 ---
 
-### `test_health.py` — System Probes
-File: [`tests/test_health.py`](test_health.py)
+## 5. Modular File-by-File Technical Reference
 
-Integration tests verifying operational monitoring endpoints in `main.py`:
+### Core Contracts & System Infrastructure
+* **`tests/contracts/test_release_gate.py` (15 tests):**
+  * Verifies `RG-01` through `RG-15` architectural requirements: async-first DB sessions, fail-closed Casbin authorization, security version invalidation, replay-resistant token rotation, clean migration head, zero unhandled 500 leaks, and hardened production defaults.
+* **`tests/migrations/test_migrations.py` (2 tests):**
+  * Asserts Alembic migration tree terminates in exactly one linear head (`6aa8f9bfed61`).
+  * Executes `alembic check` to ensure zero drift between Python models and database schemas.
+* **`tests/cli/test_manage.py` (3 tests):**
+  * Tests administrative account creation CLI (`manage.py create-admin`).
+  * Verifies email validation, password strength checks, and headless automated execution via `--password-stdin` (`SEC-16`).
 
-* **`test_health_endpoints`**:
-  * **Liveness Probe (`GET /health`)**: Verifies that the endpoint returns `200 OK` with JSON `{ "status": "ok", "version": "...", "environment": "..." }`.
-  * **Readiness Probe (`GET /health/ready`)**: Verifies that the endpoint executes an async SQL probe `SELECT 1` against the database engine and returns `200 OK` with `{ "status": "ok", "checks": { "database": "ok" } }`.
+### Security, Cryptography & Settings
+* **`tests/security/test_security.py` (4 tests):**
+  * Verifies Argon2id password hashing, verification, and rejection of invalid passwords.
+  * Verifies JWT access and refresh token encoding, claim structures (`sub`, `jti`, `exp`), and token type mismatch prevention.
+* **`tests/security/test_authorization.py` (9 tests):**
+  * Verifies Casbin RBAC policy engine evaluation, role inheritance, and wildcard access.
+  * Verifies the in-memory policy cache TTL and dynamic invalidation (`SEC-10`).
+* **`tests/security/test_guards.py` (1 test):**
+  * Verifies dynamic blocking of public registration (`SEC-15`) when `ALLOW_PUBLIC_REGISTRATION=False`.
+* **`tests/settings/test_settings.py` (10 tests):**
+  * Verifies production safeguards (`SEC-04` through `SEC-07`): rejection of weak secrets, distinct HMAC/signing secrets, wildcard CORS bans, and secure cookie requirements.
+  * Verifies trusted proxy IP and CIDR resolution (`resolve_client_ip`).
 
----
+### Authentication & Sessions
+* **`tests/modules/auth/test_auth_flow.py` (8 tests):**
+  * Full lifecycle: registration, duplicate rejection, weak password rejection, login, token refresh, replay detection, and single-device logout.
+* **`tests/modules/auth/test_session_hardening.py` (5 tests):**
+  * Tests `SEC-02` fail-closed family validation (`is_family_active`).
+  * Verifies atomic compare-and-swap (CAS) session revocation under concurrent refresh attempts.
+  * Verifies dummy password verification timing defense against user enumeration.
+* **`tests/modules/auth/test_transport_and_csrf.py` (4 tests):**
+  * Verifies `SEC-01` cookie-only transport and double-submit CSRF protection (`X-CSRF-Token`).
+  * Verifies `SEC-03` token stripping: refresh tokens are never returned in the JSON payload when `AUTH_TRANSPORT_MODE="cookie"`.
+* **`tests/modules/auth/test_password_change.py` (3 tests):**
+  * Tests credential updates, verification of current password, and automatic invalidation of all existing sessions via `security_version` increment.
 
-### `test_auth_flow.py` — Authentication Lifecycle
-File: [`tests/test_auth_flow.py`](test_auth_flow.py)
-
-Comprehensive end-to-end integration test executing the complete user authentication lifecycle:
-
-1. **User Registration (`POST /api/v1/auth/register`)**:
-   * Registers a new user account with hashed password and returns `201 Created` with a `UserResponse` schema.
-2. **Duplicate Email Rejection (Negative)**:
-   * Submits the same email again; expects `409 Conflict` with `ErrorResponse` (`code="USER_ALREADY_EXISTS"`).
-3. **Weak Password Rejection (Negative)**:
-   * Submits a password lacking required uppercase/digit/special characters; expects `422 Unprocessable Entity`.
-4. **User Login (`POST /api/v1/auth/login`)**:
-   * Submits valid credentials; returns `200 OK` with `TokenResponse` (`access_token` and `refresh_token`).
-5. **Token Refresh & Rotation (`POST /api/v1/auth/refresh`)**:
-   * Exchanges the refresh token for a brand new token pair; asserts that `new_access_token != access_token` and `new_refresh_token != refresh_token`.
-6. **Replay Attack Prevention (Negative)**:
-   * Re-submits the old (already rotated) refresh token; expects `401 Unauthorized` with `ErrorResponse` (`code="TOKEN_REVOKED"`).
-7. **Single Device Logout (`POST /api/v1/auth/logout`)**:
-   * Revokes the current active refresh token; returns `200 OK` with `MessageResponse`.
-
----
-
-### `test_user_rbac.py` — RBAC & Pagination
-File: [`tests/test_user_rbac.py`](test_user_rbac.py)
-
-Integration tests verifying authorization boundaries and pagination:
-
-* **Setup**: Seeds one Admin (`role=Roles.ADMIN`) and one Normal User (`role=Roles.USER`).
-* **Current Profile (`GET /api/v1/users/me`)**:
-  * Authenticates as normal user; returns `200 OK` with matching email and role.
-* **Privilege Guard (`GET /api/v1/users`) (Negative)**:
-  * Normal user requests admin-only user list; expects `403 Forbidden` with `ErrorResponse` (`code="ACCESS_DENIED"`).
-* **Admin Paginated List (`GET /api/v1/users?page=1&page_size=10`) (Positive)**:
-  * Admin requests user list; expects `200 OK` with `PaginatedResponse[UserResponse]`.
-  * Verifies pagination metadata: `total=2`, `page=1`, `pages=1`.
-
----
-
-### `test_audit_logging.py` — Audit Trail & Portable Logging
-File: [`tests/test_audit_logging.py`](test_audit_logging.py)
-
-Integration and service-level unit tests for the portable audit logging module:
-
-* **Service Operations (`test_audit_service_operations`)**:
-  * Asserts `save_success_event` and `save_failed_event` persist records correctly to the `audit_logs` table.
-  * Verifies user-specific query filtering via `get_user_audit_logs`.
-  * Verifies multi-format export generation across **JSON**, **TXT**, and **Markdown** formats.
-* **API Endpoints & RBAC (`test_audit_api_endpoints_and_rbac`)**:
-  * Verifies normal users are rejected with `403 Forbidden` (`ACCESS_DENIED`) on `/api/v1/audit/logs`.
-  * Verifies administrators can query paginated logs, query user-specific logs, and download file exports.
-* **Audit Context Injection & Zero Credential Leakage (`test_audit_context_and_sanitization`)**:
-  * Verifies `AuditContext` correctly injects client IP (with `X-Forwarded-For`), User-Agent, and `request_id`.
-  * Asserts user registration logs `USER_REGISTERED` with strictly sanitized payload (zero plain-text password leakage).
-  * Asserts profile updates log `USER_UPDATED` with exact `old` vs `new` diff tracking and eliminates duplicate skip logs.
+### User Domain & Audit Trail
+* **`tests/modules/user/test_user_rbac.py` & `test_user_crud.py` (2 tests):**
+  * Tests profile retrieval (`/api/v1/users/me`), updates, deletions, and administrative privilege boundaries.
+* **`tests/modules/user/test_pagination.py` (2 tests):**
+  * Tests keyset and deterministic pagination ordering on base repositories.
+* **`tests/modules/audit/test_audit_logging.py` & `test_audit_model.py` (9 tests):**
+  * Tests audit logging service operations, user-filtered queries, and file export formatting (JSON, TXT, Markdown).
+  * Verifies context injection (`client_ip`, `user_agent`, `request_id`) and credential redaction (zero plain-text password leakage).
+* **`tests/modules/audit/test_audit_db_disabled.py` (1 test):**
+  * Verifies the application operates seamlessly without errors when `AUDIT_LOG_TO_DB=False`.
 
 ---
 
-### `test_migrations.py` — Alembic Migrations & Schema Synchronization
-File: [`tests/test_migrations.py`](test_migrations.py)
+## 6. CLI Execution Guide
 
-Tests ensuring database evolution stability, single lineage, and zero schema drift:
+All test commands must be run via `uv`:
 
-* **Single Revision Head**: Verifies Alembic history has a single head (`heads` returns exactly one active head `6aa8f9bfed61`).
-* **Schema Drift Check**: Verifies that the physical database schema matches SQLAlchemy `BaseModel.metadata` with zero undetected DDL differences (`alembic check` clean).
-
----
-
-### `test_input_hardening.py` — Input Hardening & Validation Sanitization
-File: [`tests/test_input_hardening.py`](test_input_hardening.py)
-
-Tests boundary sanitization and error payload safety:
-
-* **422 Error Envelope Sanitization**: Ensures raw user input and sensitive context (`ctx`, `input`) are stripped from 422 error response details to prevent reflection or credential leakage.
-* **Payload Bounds Enforcement**: Validates that extreme input sizes (excessively long passwords, oversized audit payloads) are rejected or safely bounded.
-
----
-
-### `test_settings_and_context.py` — Proxy Resolution & Settings Hardening
-File: [`tests/test_settings_and_context.py`](test_settings_and_context.py)
-
-Tests security configuration invariants and client IP resolution:
-
-* **Client IP Proxy Resolution**: Verifies `resolve_client_ip` correctly evaluates `X-Forwarded-For` only when `TRUST_PROXY_HEADERS=True` and upstream peer IP matches configured `TRUSTED_PROXIES` (single IPs and CIDR ranges).
-* **Settings Production Guards**: Asserts that `ENVIRONMENT=pro` rejects placeholder secrets, wildcard CORS origins, and insecure configurations during startup.
-
----
-
-### `test_password_change.py` — Password Change & Session Invalidation
-File: [`tests/test_password_change.py`](test_password_change.py)
-
-Tests credential modification flows and immediate session termination:
-
-* **Password Change Lifecycle**: Validates updating password with current verification and complexity rules.
-* **Global Session Revocation**: Asserts that changing password increments the user's `security_version`, immediately invalidating all pre-existing JWT access tokens and active refresh sessions across all devices.
-
----
-
-### `test_casbin_authorization.py` — Granular Casbin RBAC Policies
-File: [`tests/test_casbin_authorization.py`](test_casbin_authorization.py)
-
-Tests declarative permission enforcement and dynamic RBAC evaluation:
-
-* **Policy Rule Evaluation**: Verifies exact `(subject, resource, action)` rules as well as wildcard permissions (`*`).
-* **Role Inheritance & Overrides**: Tests multi-role evaluation and user-specific permission overrides without database lookups during request handling.
-
----
-
-### `test_security_invariants.py` — Security Invariants & Session Isolation
-File: [`tests/test_security_invariants.py`](test_security_invariants.py)
-
-Tests invariant safety properties and session boundary guarantees:
-
-* **User Session Isolation**: Verifies that user A cannot invalidate, refresh, or hijack refresh sessions belonging to user B.
-* **Family ID Scoping**: Ensures `revoke_family` strictly scopes token family invalidation to the owning `user_id`.
-* **Replay & Substitution Resistance**: Validates token reuse detection and invalid token family revocation.
-
----
-
-## 5. CLI Execution Guide
-
-### Run All Tests
-To execute the entire test suite with standard output:
-```powershell
-uv run pytest
+### Standard Test Run
+```bash
+uv run --frozen pytest
 ```
 
-### Run with Verbose Reporting (`-v`)
-Displays the status and duration of every individual test function:
-```powershell
-uv run pytest -v
+### Verbose Mode with Execution Timing
+```bash
+uv run --frozen pytest -v
 ```
 
-### Run with Output Capture Disabled (`-s`)
-Displays `print()` statements and application logs during test execution:
-```powershell
-uv run pytest -v -s
+### Run Architecture Release Gate Tests Only
+```bash
+uv run --frozen pytest -m release_gate -v
 ```
 
-### Run a Specific Test File
-```powershell
-uv run pytest tests/test_security.py -v
-uv run pytest tests/test_health.py -v
-uv run pytest tests/test_auth_flow.py -v
-uv run pytest tests/test_user_rbac.py -v
+### Run Deep Security Audit Tests Only
+```bash
+uv run --frozen pytest -m security_audit -v
 ```
 
-### Run a Specific Test Function
-```powershell
-uv run pytest tests/test_auth_flow.py::test_auth_full_lifecycle -v
-uv run pytest tests/test_user_rbac.py::test_rbac_and_user_endpoints -v
+### Run Specific Test Directory or Module
+```bash
+# Run all authentication tests
+uv run --frozen pytest tests/modules/auth/ -v
+
+# Run release gate contract tests
+uv run --frozen pytest tests/contracts/test_release_gate.py -v
+
+# Run settings and security tests
+uv run --frozen pytest tests/settings/ tests/security/ -v
 ```
 
-### Run Tests Matching a Pattern (`-k`)
-```powershell
-uv run pytest -k "token" -v
-uv run pytest -k "rbac" -v
+### Run Filtered Tests by Pattern (`-k`)
+```bash
+uv run --frozen pytest -k "csrf or cookie" -v
+uv run --frozen pytest -k "casbin" -v
 ```
 
 ---
 
-## 6. Data Contracts & Payload Reference (Positive vs. Negative)
+## 7. Data Contracts & Payload Reference
 
-### A. Registration (`POST /api/v1/auth/register`)
+### Registration (`POST /api/v1/auth/register`)
 
-#### Positive Scenario (Success)
+#### Success Scenario
 * **Request JSON:**
   ```json
   {
-    "name": "Test Engineer",
-    "email": "engineer@enterprise.io",
+    "name": "Basel Developer",
+    "email": "basel@example.com",
     "password": "StrongP@ssw0rd!"
   }
   ```
@@ -303,17 +253,16 @@ uv run pytest -k "rbac" -v
   ```json
   {
     "id": 1,
-    "name": "Test Engineer",
-    "email": "engineer@enterprise.io",
+    "name": "Basel Developer",
+    "email": "basel@example.com",
     "role": "user",
     "is_active": true,
-    "created_at": "2026-09-28T19:58:44.519000Z",
-    "updated_at": "2026-09-28T19:58:44.519000Z"
+    "created_at": "2026-11-04T12:00:00Z",
+    "updated_at": "2026-11-04T12:00:00Z"
   }
   ```
 
-#### Negative Scenario 1: Duplicate Email Conflict
-* **Request JSON:** Same email as an existing account.
+#### Duplicate Email Rejection
 * **Response Status:** `409 Conflict`
 * **Response Body (`ErrorResponse`):**
   ```json
@@ -321,200 +270,66 @@ uv run pytest -k "rbac" -v
     "success": false,
     "error": {
       "code": "USER_ALREADY_EXISTS",
-      "message": "User with email 'engineer@enterprise.io' already exists.",
+      "message": "User with email 'basel@example.com' already exists.",
       "details": null
     },
-    "request_id": "201d8bc8badf49f2b89a1b796adeb897"
+    "request_id": "c1f7a4b8..."
   }
   ```
 
-#### Negative Scenario 2: Weak Password Violation
-* **Request JSON:**
-  ```json
-  {
-    "name": "Test Engineer",
-    "email": "engineer2@enterprise.io",
-    "password": "simple"
-  }
-  ```
-* **Response Status:** `422 Unprocessable Entity`
-* **Response Body (`ErrorResponse` Envelope):**
-  ```json
-  {
-    "success": false,
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Invalid request payload.",
-      "details": [
-        {
-          "type": "value_error",
-          "loc": ["body", "password"],
-          "msg": "Value error, Password must contain at least one uppercase letter."
-        }
-      ]
-    },
-    "request_id": "201d8bc8badf49f2b89a1b796adeb897"
-  }
-  ```
+### Login (`POST /api/v1/auth/login`)
 
----
-
-### B. Login (`POST /api/v1/auth/login`)
-
-#### Positive Scenario (Success)
-* **Request JSON:**
-  ```json
-  {
-    "email": "engineer@enterprise.io",
-    "password": "StrongP@ssw0rd!"
-  }
-  ```
+#### Success Scenario (Bearer Mode)
 * **Response Status:** `200 OK`
 * **Response Body (`TokenResponse`):**
   ```json
   {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_token": "eyJhbGciOiJIUzI1NiIsIn...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsIn...",
     "token_type": "bearer"
   }
   ```
 
-#### Negative Scenario: Wrong Password or Email
-* **Request JSON:**
-  ```json
-  {
-    "email": "engineer@enterprise.io",
-    "password": "WrongPassword123!"
-  }
-  ```
-* **Response Status:** `401 Unauthorized`
-* **Response Body (`ErrorResponse`):**
-  ```json
-  {
-    "success": false,
-    "error": {
-      "code": "INVALID_CREDENTIALS",
-      "message": "Invalid email or password.",
-      "details": null
-    },
-    "request_id": "9b12f6a73c1d42a8b9821f5e8e3a2014"
-  }
-  ```
-
----
-
-### C. Refresh Token (`POST /api/v1/auth/refresh`)
-
-#### Positive Scenario (Success with Rotation)
-* **Request JSON:**
-  ```json
-  {
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-  }
-  ```
+#### Success Scenario (Cookie-only Mode `SEC-03`)
 * **Response Status:** `200 OK`
+* **Set-Cookie Headers:** `access_token=...; HttpOnly; Secure; SameSite=Lax`, `refresh_token=...; HttpOnly; Secure; SameSite=Lax`
 * **Response Body (`TokenResponse`):**
   ```json
   {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...<NEW>",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...<NEW>",
+    "access_token": null,
+    "refresh_token": null,
     "token_type": "bearer"
   }
   ```
 
-#### Negative Scenario: Replaying an Already-Rotated/Revoked Token
-* **Request JSON:** Submitting the old refresh token after rotation.
-* **Response Status:** `401 Unauthorized`
-* **Response Body (`ErrorResponse`):**
-  ```json
-  {
-    "success": false,
-    "error": {
-      "code": "TOKEN_REVOKED",
-      "message": "Refresh token has been revoked or is invalid.",
-      "details": null
-    },
-    "request_id": "3f8e12cb5d2a45a689b1c7820e14a519"
-  }
-  ```
-
 ---
 
-### D. RBAC Protected User List (`GET /api/v1/users`)
+## 8. Authoring New Tests & Best Practices
 
-#### Positive Scenario (Admin Access with Pagination)
-* **Headers:** `Authorization: Bearer <ADMIN_ACCESS_TOKEN>`
-* **Query Parameters:** `?page=1&page_size=10`
-* **Response Status:** `200 OK`
-* **Response Body (`PaginatedResponse[UserResponse]`):**
-  ```json
-  {
-    "success": true,
-    "data": [
-      {
-        "id": 1,
-        "name": "Root Admin",
-        "email": "admin@enterprise.io",
-        "role": "admin",
-        "is_active": true,
-        "created_at": "2026-09-28T20:00:00.000000Z",
-        "updated_at": "2026-09-28T20:00:00.000000Z"
-      },
-      {
-        "id": 2,
-        "name": "Normal User",
-        "email": "user@enterprise.io",
-        "role": "user",
-        "is_active": true,
-        "created_at": "2026-09-28T20:00:00.000000Z",
-        "updated_at": "2026-09-28T20:00:00.000000Z"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "page_size": 10,
-      "total": 2,
-      "pages": 1
-    }
-  }
-  ```
+When adding new tests, adhere strictly to these architectural guidelines:
 
-#### Negative Scenario: Normal User Access Denied
-* **Headers:** `Authorization: Bearer <NORMAL_USER_ACCESS_TOKEN>`
-* **Response Status:** `403 Forbidden`
-* **Response Body (`ErrorResponse`):**
-  ```json
-  {
-    "success": false,
-    "error": {
-      "code": "ACCESS_DENIED",
-      "message": "Operation requires one of the following roles: ['admin'].",
-      "details": null
-    },
-    "request_id": "e42d7a19c8f341b590e6a1278b30f452"
-  }
-  ```
-
----
-
-## 7. Troubleshooting & Best Practices
-
-### JTI Token Collisions
-* **Issue:** Generating tokens within the same second for the same user id could yield identical JWT signatures if only `sub`, `iat`, and `exp` are encoded.
-* **Resolution:** Every access token and refresh token automatically receives a unique `jti = uuid.uuid4().hex` in its payload, guaranteeing cryptographic uniqueness.
-
-### Writing New Tests
-When adding new endpoints to the project, follow this pattern:
-
-```python
-import pytest
-from httpx import AsyncClient
-
-@pytest.mark.asyncio
-async def test_my_new_endpoint(client: AsyncClient):
-    response = await client.get("/api/v1/my-path")
-    assert response.status_code == 200
-    assert response.json()["success"] is True
-```
-
-The `client` fixture handles database isolation, schema initialization, and teardown automatically.
+1. **Place Tests in the Mirrored Directory:**
+   * Adding a feature to `src/modules/billing/`? Place tests in `tests/modules/billing/test_billing_flow.py`.
+2. **Never Import from `conftest`:**
+   * Use `tests.support.database` for `TestSessionLocal` or `test_engine`.
+   * Use `tests.support.paths` for path references.
+3. **Use the `make_access_token` Factory Fixture:**
+   * When testing endpoints requiring authentication, prefer `await make_access_token(user_id=1)`.
+4. **Always Specify Error Messages in `pytest.raises`:**
+   ```python
+   with pytest.raises(ValidationException, match="must contain at least one uppercase letter"):
+       ...
+   ```
+5. **Use Explicit Parameter IDs:**
+   ```python
+   @pytest.mark.parametrize(
+       ("payload", "expected_code"),
+       [
+           ({"email": "valid@example.com"}, 200),
+           ({"email": "bad-email"}, 422),
+       ],
+       ids=["valid-email", "malformed-email"],
+   )
+   ```
+6. **Use `monkeypatch` for Configuration Overrides:**
+   * Always revert modified settings cleanly using pytest's built-in `monkeypatch` fixture.

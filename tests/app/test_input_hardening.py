@@ -1,10 +1,14 @@
 import logging
+from typing import Any
+
 import pytest
 from httpx import AsyncClient
 
 
-@pytest.mark.asyncio
-async def test_validation_errors_never_leak_secret_payloads(client: AsyncClient, caplog: pytest.LogCaptureFixture) -> None:
+async def test_validation_errors_never_leak_secret_payloads(
+    client: AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Verifies that submitted sensitive input values are not leaked into 422 response bodies or logs."""
     secret_marker = "zz-SECRET-weakpass"
 
@@ -58,40 +62,39 @@ async def test_validation_errors_never_leak_secret_payloads(client: AsyncClient,
         assert model_secret not in caplog.text
 
 
-@pytest.mark.asyncio
-async def test_non_string_email_rejected_with_422(client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    "bad_email",
+    [12345, True, [], {}],
+    ids=["integer", "boolean", "list", "dict"],
+)
+async def test_non_string_email_rejected_with_422(
+    client: AsyncClient,
+    bad_email: Any,
+) -> None:
     """Verifies that non-string email inputs result in 422 Unprocessable Entity instead of 500 error."""
-    invalid_inputs = [12345, True, [], {}]
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        json={"name": "Type Test", "email": bad_email, "password": "StrongP@ssw0rd!1"},
+    )
+    assert reg_resp.status_code == 422
 
-    for bad_email in invalid_inputs:
-        # Register endpoint
-        reg_resp = await client.post(
-            "/api/v1/auth/register",
-            json={"name": "Type Test", "email": bad_email, "password": "StrongP@ssw0rd!1"},
-        )
-        assert reg_resp.status_code == 422, f"Failed on register with email={bad_email}"
-
-        # Login endpoint
-        login_resp = await client.post(
-            "/api/v1/auth/login",
-            json={"email": bad_email, "password": "StrongP@ssw0rd!1"},
-        )
-        assert login_resp.status_code == 422, f"Failed on login with email={bad_email}"
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": bad_email, "password": "StrongP@ssw0rd!1"},
+    )
+    assert login_resp.status_code == 422
 
 
-@pytest.mark.asyncio
 async def test_password_length_upper_bound(client: AsyncClient) -> None:
     """Verifies that passwords exceeding PASSWORD_MAX_LENGTH (100) are rejected with 422."""
     oversized_password = "A1!" + "x" * 98  # 101 characters
 
-    # Login rejection
     login_resp = await client.post(
         "/api/v1/auth/login",
         json={"email": "any@enterprise.io", "password": oversized_password},
     )
     assert login_resp.status_code == 422
 
-    # Change-password rejection
     valid_pass = "ValidP@ssw0rd!1"
     await client.post(
         "/api/v1/auth/register",
@@ -111,11 +114,9 @@ async def test_password_length_upper_bound(client: AsyncClient) -> None:
     assert change_resp.status_code == 422
 
 
-@pytest.mark.asyncio
 async def test_patch_user_rejects_explicit_nulls(client: AsyncClient) -> None:
     """Verifies that PATCH /users/{id} rejects explicit null for NOT NULL columns with 422."""
     admin_pass = "AdminP@ssw0rd!1"
-    # Register an admin user
     reg_resp = await client.post(
         "/api/v1/auth/register",
         json={"name": "Patch Admin", "email": "patch.admin@enterprise.io", "password": admin_pass},
