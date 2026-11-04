@@ -24,7 +24,6 @@ from src.security import (
     decode_refresh_token,
     hash_password,
     hash_password_async,
-    verify_dummy_password_async,
     verify_password,
     verify_password_async,
     verify_and_update,
@@ -67,6 +66,11 @@ def _is_duplicate_email_integrity_error(exc: IntegrityError) -> bool:
     """
     raw_msg = str(getattr(exc, "orig", exc)).lower()
     return any(marker in raw_msg for marker in ("email", "uq_users_email", "ix_users_email", "unique"))
+
+
+async def verify_dummy_password_async(plain_password: str) -> None:
+    """Invokes dummy password verification off the event loop using local verify_password."""
+    await asyncio.to_thread(verify_password, plain_password, SECURITY_PASSWORD_HASH)
 
 
 async def _issue_token_pair(

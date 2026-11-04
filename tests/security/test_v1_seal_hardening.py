@@ -169,7 +169,7 @@ async def test_sec_30_manage_create_admin_flushes_integer_entity_id(
 
     # Query audit logs for the creation event
     result = await db_session.execute(
-        select(AuditLog).where(AuditLog.action == "CLI_ADMIN_CREATED")
+        select(AuditLog).where(AuditLog.event_type == "CLI_ADMIN_CREATED")
     )
     log_entry = result.scalar_one_or_none()
     assert log_entry is not None
