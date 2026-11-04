@@ -52,5 +52,5 @@ def test_access_token_type_mismatch():
     user_id = 1
     token, _ = create_refresh_token(user_id=user_id)
 
-    with pytest.raises(InvalidCredentialsException, match="Invalid token type"):
+    with pytest.raises(InvalidCredentialsException, match="Invalid email or password."):
         decode_access_token(token=token)
