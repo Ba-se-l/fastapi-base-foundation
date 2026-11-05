@@ -37,7 +37,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = ["--strict-markers", "-ra"]
+addopts = ["--strict-markers", "-ra", "-p", "no:anyio"]
 markers = [
     "release_gate: RG-01..RG-15 enterprise release-gate contracts",
     "security_audit: SEC-01..SEC-18 V1 security-audit regressions",
