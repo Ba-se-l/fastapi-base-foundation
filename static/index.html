@@ -11,10 +11,10 @@
     <link rel="stylesheet" href="/ui/assets/css/components.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- Top Telemetry & Context Bar -->
-        <header class="top-bar">
-            <div class="top-bar-left">
+    <div class="app-shell app-container">
+        <!-- Top Telemetry & Context Bar: Fluid Wrapping on Small Screens -->
+        <header class="app-header top-bar">
+            <div class="top-bar-left header-left">
                 <div class="brand-badge">
                     <span class="logo-icon">⚡</span>
                     <span>Enterprise API Workbench</span>
@@ -25,7 +25,7 @@
                 </div>
             </div>
 
-            <div class="top-bar-center">
+            <div class="top-bar-center header-center">
                 <!-- Multi-Device Switcher Header -->
                 <div class="device-switcher" title="Active client slot for outbound HTTP calls">
                     <button class="device-tab active" id="top-device-a" data-slot="device_a">📱 Device A</button>
@@ -39,20 +39,20 @@
                 </div>
             </div>
 
-            <div class="top-bar-right">
+            <div class="top-bar-right header-right">
                 <div class="user-session-chip" id="top-user-session-chip">
                     <span id="top-user-label">Anonymous</span>
                 </div>
                 <button class="btn btn-sm btn-secondary" id="inspector-toggle-btn" title="Toggle Live Network Inspector">
-                    📡 Network Inspector (<span id="inspector-count-badge">0</span>)
+                    📡 Inspector (<span id="inspector-count-badge">0</span>)
                 </button>
             </div>
         </header>
 
         <!-- Main Body: Sidebar + Workspace -->
-        <div class="main-body">
-            <!-- Sidebar Navigation -->
-            <aside class="sidebar">
+        <div class="app-body main-body">
+            <!-- Sidebar Navigation (Desktop Left Dock or Mobile Scrollable Tab Bar) -->
+            <aside class="app-sidebar sidebar">
                 <div class="nav-group">
                     <div class="nav-heading">Platform Modules</div>
                     <a class="nav-item active" data-tab="health" id="tab-health">
@@ -90,15 +90,15 @@
                 </div>
             </aside>
 
-            <!-- Center Interactive Viewport -->
-            <main class="viewport-content" id="workspace-viewport">
+            <!-- Center Interactive Viewport: Natural Vertical Expansion -->
+            <main class="app-workspace viewport-content" id="workspace-viewport">
                 <!-- Dynamically populated by app.js -->
             </main>
         </div>
 
-        <!-- Collapsible Bottom Network Inspector Drawer -->
-        <div class="inspector-drawer collapsed" id="network-inspector-drawer">
-            <div class="inspector-header" id="inspector-drawer-header">
+        <!-- Docked Bottom Network Inspector (Never Overlaps Workspace Content) -->
+        <div class="inspector-dock inspector-drawer collapsed" id="network-inspector-drawer">
+            <div class="inspector-header inspector-drawer-header" id="inspector-drawer-header">
                 <div class="inspector-title">
                     <span>📡 Live Network Inspector</span>
                     <span class="badge badge-info" id="inspector-title-badge">0 requests</span>

@@ -23,8 +23,10 @@ class NetworkInspector {
 
     bindDOM() {
         this.toggleBtn = document.getElementById('inspector-toggle-btn');
+        this.closeBtn = document.getElementById('inspector-close-btn');
         this.drawer = document.getElementById('network-inspector-drawer');
         this.counterBadge = document.getElementById('inspector-count-badge');
+        this.titleBadge = document.getElementById('inspector-title-badge');
         this.listEl = document.getElementById('inspector-tx-list');
         this.detailEl = document.getElementById('inspector-tx-detail');
         this.clearBtn = document.getElementById('inspector-clear-btn');
@@ -34,13 +36,28 @@ class NetworkInspector {
             this.toggleBtn.addEventListener('click', () => this.toggleDrawer());
         }
 
+        if (this.closeBtn && this.drawer) {
+            this.closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleDrawer();
+            });
+        }
+
+        const header = document.getElementById('inspector-drawer-header');
+        if (header) {
+            header.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                this.toggleDrawer();
+            });
+        }
+
         if (this.clearBtn) {
             this.clearBtn.addEventListener('click', () => this.clear());
         }
 
         if (this.filterBtns) {
             this.filterBtns.forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', () => {
                     this.filterBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     this.filter = btn.dataset.filter || 'all';
@@ -52,16 +69,19 @@ class NetworkInspector {
 
     toggleDrawer(forceState = null) {
         if (!this.drawer) return;
-        this.isDrawerExpanded = forceState !== null ? forceState : !this.isDrawerExpanded;
-        if (this.isDrawerExpanded) {
-            this.drawer.classList.add('expanded');
+        const isCurrentlyCollapsed = this.drawer.classList.contains('collapsed');
+        const shouldCollapse = forceState !== null ? !forceState : !isCurrentlyCollapsed;
+
+        if (shouldCollapse) {
+            this.drawer.classList.add('collapsed');
+            if (this.closeBtn) this.closeBtn.textContent = '▲ Expand';
         } else {
-            this.drawer.classList.remove('expanded');
+            this.drawer.classList.remove('collapsed');
+            if (this.closeBtn) this.closeBtn.textContent = '▼ Collapse';
         }
     }
 
     addTransaction(tx) {
-        // Prepend transaction with unique ID
         const item = {
             id: 'tx_' + Math.random().toString(36).substring(2, 9),
             ...tx,
@@ -71,7 +91,6 @@ class NetworkInspector {
             this.transactions.pop();
         }
 
-        // Auto-select the newest transaction
         this.activeTransaction = item;
         this.updateBadge();
         this.renderList();
@@ -88,9 +107,9 @@ class NetworkInspector {
     }
 
     updateBadge() {
-        if (this.counterBadge) {
-            this.counterBadge.textContent = this.transactions.length;
-        }
+        const count = this.transactions.length;
+        if (this.counterBadge) this.counterBadge.textContent = count;
+        if (this.titleBadge) this.titleBadge.textContent = `${count} request${count === 1 ? '' : 's'}`;
     }
 
     renderList() {
@@ -113,11 +132,10 @@ class NetworkInspector {
         this.listEl.innerHTML = filtered.map(t => {
             const isSelected = this.activeTransaction?.id === t.id ? 'active' : '';
             const status = t.response.status;
-            let statusCls = 'status-2xx';
-            if (status >= 400 && status < 500) statusCls = 'status-4xx';
-            else if (status >= 500 || status === 0) statusCls = 'status-5xx';
+            let statusBadge = 'badge-200';
+            if (status >= 400 && status < 500) statusBadge = 'badge-401';
+            else if (status >= 500 || status === 0) statusBadge = 'badge-500';
 
-            // Extract relative endpoint for display
             let urlDisplay = t.request.url;
             try {
                 const parsed = new URL(t.request.url, window.location.origin);
@@ -125,23 +143,22 @@ class NetworkInspector {
             } catch {}
 
             return `
-                <div class="tx-item ${isSelected}" data-id="${t.id}">
-                    <div class="tx-item-header">
-                        <span class="method-pill method-${t.request.method.toLowerCase()}">${t.request.method}</span>
-                        <span class="status-pill ${statusCls}">${status || 'ERR'}</span>
-                        <span class="tx-duration">${t.response.durationMs}ms</span>
+                <div class="card p-2 mb-2 ${isSelected}" data-id="${t.id}" style="cursor: pointer; ${isSelected ? 'border-color: var(--primary); background-color: var(--primary-subtle);' : ''}">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="badge badge-info">${escapeHtml(t.request.method)}</span>
+                        <span class="badge ${statusBadge}">${status || 'ERR'}</span>
+                        <span class="font-mono text-xs text-muted">${t.response.durationMs}ms</span>
                     </div>
-                    <div class="tx-url" title="${escapeHtml(t.request.url)}">${escapeHtml(urlDisplay)}</div>
-                    <div class="tx-footer">
-                        <span class="device-tag">${t.request.deviceSlot === 'device_b' ? 'Device B' : 'Device A'}</span>
-                        <span class="tx-time">${new Date(t.request.timestamp).toLocaleTimeString()}</span>
+                    <div class="font-mono text-xs breakable-mono" title="${escapeHtml(t.request.url)}">${escapeHtml(urlDisplay)}</div>
+                    <div class="d-flex justify-content-between text-muted mt-1" style="font-size: 0.72rem;">
+                        <span>${t.request.deviceSlot === 'device_b' ? 'Device B' : 'Device A'}</span>
+                        <span>${new Date(t.request.timestamp).toLocaleTimeString()}</span>
                     </div>
                 </div>
             `;
         }).join('');
 
-        // Attach click listener
-        this.listEl.querySelectorAll('.tx-item').forEach(el => {
+        this.listEl.querySelectorAll('.card[data-id]').forEach(el => {
             el.addEventListener('click', () => {
                 const id = el.dataset.id;
                 this.activeTransaction = this.transactions.find(t => t.id === id);
@@ -161,91 +178,97 @@ class NetworkInspector {
 
         const req = tx.request;
         const res = tx.response;
-        const reqId = res.headers['x-request-id'] || req.headers['x-request-id'] || req.headers['X-Request-ID'] || 'None';
+        const reqId = res.headers?.['x-request-id'] || req.headers?.['x-request-id'] || req.headers?.['X-Request-ID'] || 'None';
 
         this.detailEl.innerHTML = `
-            <div class="detail-header-bar">
-                <div class="detail-title-group">
-                    <span class="method-badge method-${req.method.toLowerCase()}">${req.method}</span>
-                    <span class="detail-url" title="${escapeHtml(req.url)}">${escapeHtml(req.url)}</span>
+            <div class="card p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge badge-info">${escapeHtml(req.method)}</span>
+                        <span class="font-mono text-xs breakable-mono" title="${escapeHtml(req.url)}">${escapeHtml(req.url)}</span>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-xs btn-outline" id="btn-copy-curl">Copy cURL</button>
+                        <button class="btn btn-xs btn-outline" id="btn-copy-json">Copy JSON</button>
+                    </div>
                 </div>
-                <div class="detail-actions">
-                    <button class="btn btn-sm btn-outline" id="btn-copy-curl">Copy cURL</button>
-                    <button class="btn btn-sm btn-outline" id="btn-copy-json">Copy JSON</button>
-                </div>
-            </div>
 
-            <div class="detail-meta-grid">
-                <div class="meta-item"><span class="meta-label">Status:</span> <span class="meta-value bold">${res.status} ${escapeHtml(res.statusText || '')}</span></div>
-                <div class="meta-item"><span class="meta-label">Duration:</span> <span class="meta-value">${res.durationMs} ms</span></div>
-                <div class="meta-item"><span class="meta-label">Device Slot:</span> <span class="meta-value badge badge-purple">${req.deviceSlot}</span></div>
-                <div class="meta-item"><span class="meta-label">X-Request-ID:</span> <span class="meta-value code-font">${escapeHtml(reqId)}</span></div>
-            </div>
+                <div class="claims-grid mb-3">
+                    <div class="claim-row">
+                        <span class="claim-label">Status & Duration:</span>
+                        <span class="claim-val bold">${res.status} ${escapeHtml(res.statusText || '')} (${res.durationMs} ms)</span>
+                    </div>
+                    <div class="claim-row">
+                        <span class="claim-label">Device Slot / Request ID:</span>
+                        <span class="claim-val breakable-mono">${req.deviceSlot} | ${escapeHtml(reqId)}</span>
+                    </div>
+                </div>
 
-            <div class="detail-tabs">
-                <button class="detail-tab-btn active" data-tab="res-body">Response Body</button>
-                <button class="detail-tab-btn" data-tab="req-body">Request Body</button>
-                <button class="detail-tab-btn" data-tab="res-headers">Response Headers</button>
-                <button class="detail-tab-btn" data-tab="req-headers">Request Headers</button>
-            </div>
+                <div class="btn-group mb-2">
+                    <button class="btn btn-xs btn-outline detail-tab-btn active" data-tab="res-body">Response Body</button>
+                    <button class="btn btn-xs btn-outline detail-tab-btn" data-tab="req-body">Request Body</button>
+                    <button class="btn btn-xs btn-outline detail-tab-btn" data-tab="res-headers">Response Headers</button>
+                    <button class="btn btn-xs btn-outline detail-tab-btn" data-tab="req-headers">Request Headers</button>
+                </div>
 
-            <div class="detail-tab-contents">
-                <div class="detail-pane active" id="pane-res-body">
-                    <pre class="syntax-code-block">${syntaxHighlightJson(res.data)}</pre>
-                </div>
-                <div class="detail-pane" id="pane-req-body">
-                    <pre class="syntax-code-block">${req.body ? syntaxHighlightJson(req.body) : '<span class="empty-dim">&lt;No Request Body&gt;</span>'}</pre>
-                </div>
-                <div class="detail-pane" id="pane-res-headers">
-                    <table class="inspector-table">
-                        <thead><tr><th>Header</th><th>Value</th></tr></thead>
-                        <tbody>
-                            ${Object.entries(res.headers).map(([k, v]) => `<tr><td class="bold">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="detail-pane" id="pane-req-headers">
-                    <table class="inspector-table">
-                        <thead><tr><th>Header</th><th>Value</th></tr></thead>
-                        <tbody>
-                            ${Object.entries(req.headers).map(([k, v]) => `<tr><td class="bold">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
-                        </tbody>
-                    </table>
+                <div class="detail-tab-contents">
+                    <div class="detail-pane active" id="pane-res-body">
+                        <pre class="code-block">${syntaxHighlightJson(res.data)}</pre>
+                    </div>
+                    <div class="detail-pane" id="pane-req-body" style="display: none;">
+                        <pre class="code-block">${req.body ? syntaxHighlightJson(req.body) : '<span class="text-muted">&lt;No Request Body&gt;</span>'}</pre>
+                    </div>
+                    <div class="detail-pane" id="pane-res-headers" style="display: none;">
+                        <table class="data-table">
+                            <thead><tr><th>Header</th><th>Value</th></tr></thead>
+                            <tbody>
+                                ${Object.entries(res.headers || {}).map(([k, v]) => `<tr><td class="bold font-mono text-xs">${escapeHtml(k)}</td><td class="breakable-mono">${escapeHtml(v)}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="detail-pane" id="pane-req-headers" style="display: none;">
+                        <table class="data-table">
+                            <thead><tr><th>Header</th><th>Value</th></tr></thead>
+                            <tbody>
+                                ${Object.entries(req.headers || {}).map(([k, v]) => `<tr><td class="bold font-mono text-xs">${escapeHtml(k)}</td><td class="breakable-mono">${escapeHtml(v)}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         `;
 
-        // Tab switching logic
         const tabBtns = this.detailEl.querySelectorAll('.detail-tab-btn');
         const panes = this.detailEl.querySelectorAll('.detail-pane');
         tabBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 tabBtns.forEach(b => b.classList.remove('active'));
-                panes.forEach(p => p.classList.remove('active'));
+                panes.forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
                 btn.classList.add('active');
                 const target = this.detailEl.querySelector(`#pane-${btn.dataset.tab}`);
-                if (target) target.classList.add('active');
+                if (target) {
+                    target.style.display = 'block';
+                    target.classList.add('active');
+                }
             });
         });
 
-        // Copy cURL logic
         const copyCurlBtn = this.detailEl.querySelector('#btn-copy-curl');
         if (copyCurlBtn) {
             copyCurlBtn.addEventListener('click', () => {
                 const curlCmd = this.generateCurl(tx);
                 copyToClipboard(curlCmd).then(() => {
-                    showToast('cURL command copied to clipboard!', 'success', 2500);
+                    showToast('cURL command copied to clipboard!', 'success', 2000);
                 });
             });
         }
 
-        // Copy JSON logic
         const copyJsonBtn = this.detailEl.querySelector('#btn-copy-json');
         if (copyJsonBtn) {
             copyJsonBtn.addEventListener('click', () => {
                 const jsonStr = JSON.stringify(res.data, null, 2);
                 copyToClipboard(jsonStr).then(() => {
-                    showToast('Response JSON copied to clipboard!', 'success', 2500);
+                    showToast('Response JSON copied to clipboard!', 'success', 2000);
                 });
             });
         }
@@ -254,12 +277,12 @@ class NetworkInspector {
     generateCurl(tx) {
         const req = tx.request;
         let cmd = `curl -X ${req.method} "${req.url}"`;
-        for (const [k, v] of Object.entries(req.headers)) {
-            cmd += ` \\n  -H "${k}: ${v.replace(/"/g, '\\"')}"`;
+        for (const [k, v] of Object.entries(req.headers || {})) {
+            cmd += ` \\\n  -H "${k}: ${v.replace(/"/g, '\\"')}"`;
         }
         if (req.body) {
             const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-            cmd += ` \\n  --data '${bodyStr.replace(/'/g, "'\\''")}'`;
+            cmd += ` \\\n  --data '${bodyStr.replace(/'/g, "'\\''")}'`;
         }
         return cmd;
     }

@@ -29,7 +29,6 @@ class App {
         this.bindNavigation();
         this.bindTopBar();
         networkInspector.bindDOM();
-        this.bindDrawerActions();
         this.bindSessionSync();
 
         // Listen for URL hash routing or default to health
@@ -42,7 +41,7 @@ class App {
     }
 
     bindNavigation() {
-        document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(item => {
+        document.querySelectorAll('.sidebar .nav-item[data-tab], .app-sidebar .nav-item[data-tab]').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
                 const tab = item.dataset.tab;
@@ -70,7 +69,7 @@ class App {
         window.location.hash = `#${tabName}`;
 
         // Update sidebar active classes
-        document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(el => {
+        document.querySelectorAll('.sidebar .nav-item[data-tab], .app-sidebar .nav-item[data-tab]').forEach(el => {
             if (el.dataset.tab === tabName) {
                 el.classList.add('active');
             } else {
@@ -148,35 +147,6 @@ class App {
                 userChip.innerHTML = `<strong>${activeSlot === 'device_b' ? 'Dev B' : 'Dev A'}:</strong> <span class="text-muted">Logged Out</span>`;
             }
         }
-    }
-
-    bindDrawerActions() {
-        const drawer = document.getElementById('network-inspector-drawer');
-        const toggleBtn = document.getElementById('inspector-toggle-btn');
-        const closeBtn = document.getElementById('inspector-close-btn');
-        const header = document.getElementById('inspector-drawer-header');
-
-        const toggleDrawer = () => {
-            if (!drawer) return;
-            const isCollapsed = drawer.classList.contains('collapsed');
-            if (isCollapsed) {
-                drawer.classList.remove('collapsed');
-                if (closeBtn) closeBtn.textContent = '▼ Collapse';
-            } else {
-                drawer.classList.add('collapsed');
-                if (closeBtn) closeBtn.textContent = '▲ Expand';
-            }
-        };
-
-        if (toggleBtn) toggleBtn.addEventListener('click', toggleDrawer);
-        if (closeBtn) closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleDrawer();
-        });
-        if (header) header.addEventListener('click', (e) => {
-            if (e.target.closest('button')) return;
-            toggleDrawer();
-        });
     }
 
     async pingHealthStatus() {

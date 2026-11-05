@@ -1,71 +1,106 @@
 /* ==========================================================================
-   Enterprise Design Tokens & Theme Variables
-   High-Contrast Dark Console Aesthetic (GitHub / Linear / Datadog Inspired)
+   Google Cloud & Material Design 3 Light Theme Variables
+   Ultra-Fast, Zero GPU/CPU Overhead, Fluid clamp() Tokens
    ========================================================================== */
 
 :root {
-    /* Color Palette - Neutrals */
-    --bg-canvas: #090d16;
-    --bg-surface: #0f172a;
-    --bg-surface-elevated: #1e293b;
-    --bg-surface-active: #283548;
-    --bg-card: rgba(15, 23, 42, 0.75);
-    --bg-card-border: rgba(148, 163, 184, 0.12);
-    --bg-card-border-hover: rgba(148, 163, 184, 0.28);
-    
-    /* Typography Colors */
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --text-inverse: #090d16;
-    
-    /* Semantic Colors */
-    --accent-primary: #38bdf8;
-    --accent-primary-hover: #0ea5e9;
-    --accent-primary-glow: rgba(56, 189, 248, 0.25);
-    
-    --accent-success: #10b981;
-    --accent-success-hover: #059669;
-    --accent-success-glow: rgba(16, 185, 129, 0.25);
-    
-    --accent-warning: #f59e0b;
-    --accent-warning-hover: #d97706;
-    --accent-warning-glow: rgba(245, 158, 11, 0.25);
-    
-    --accent-danger: #ef4444;
-    --accent-danger-hover: #dc2626;
-    --accent-danger-glow: rgba(239, 68, 68, 0.25);
+  /* 1. Google Material 3 / Cloud Console Light Palette */
+  --bg-app: #F8F9FA;               /* Google Gray 50 - Main App Canvas */
+  --bg-surface: #FFFFFF;           /* Pure White - Cards, Header, Sidebar, Panels */
+  --bg-surface-secondary: #F1F3F4; /* Google Gray 100 - Table Headers, Code Blocks, Subtle Boxes */
+  --bg-surface-hover: #E8EAED;     /* Google Gray 200 - Interactive Hover */
+  --bg-active-pill: #E8F0FE;       /* Google Blue 50 - Active Nav & Selected State */
 
-    --accent-purple: #a855f7;
-    --accent-purple-glow: rgba(168, 85, 247, 0.25);
-    
-    --accent-cyan: #06b6d4;
+  /* 2. Crisp 1px Borders (Zero GPU Blur/Shadow Overhead) */
+  --border-subtle: #E8EAED;
+  --border-default: #DADCE0;       /* Google Gray 300 */
+  --border-strong: #BDC1C6;        /* Google Gray 400 */
+  --border-focus: #1A73E8;         /* Google Blue 600 */
 
-    /* Status Badges */
-    --badge-200-bg: rgba(16, 185, 129, 0.15);
-    --badge-200-text: #34d399;
-    --badge-401-bg: rgba(245, 158, 11, 0.15);
-    --badge-401-text: #fbbf24;
-    --badge-403-bg: rgba(239, 68, 68, 0.15);
-    --badge-403-text: #f87171;
-    --badge-422-bg: rgba(168, 85, 247, 0.15);
-    --badge-422-text: #c084fc;
-    --badge-500-bg: rgba(239, 68, 68, 0.25);
-    --badge-500-text: #fca5a5;
+  /* 3. High-Contrast Google Typography Colors */
+  --text-primary: #202124;         /* Google Gray 900 */
+  --text-secondary: #5F6368;       /* Google Gray 700 */
+  --text-muted: #70757A;           /* Google Gray 600 */
+  --text-on-primary: #FFFFFF;
 
-    /* Fonts & Radii */
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, 'Courier New', monospace;
-    
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-full: 9999px;
+  /* 4. Semantic Google Accents */
+  --primary: #1A73E8;              /* Google Blue 600 */
+  --primary-hover: #1557B0;        /* Google Blue 700 */
+  --primary-subtle: #E8F0FE;
 
-    /* Shadows & Transitions */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.6);
-    --transition-fast: 0.15s ease;
-    --transition-base: 0.25s ease;
+  --success: #1E8E3E;              /* Google Green 600 */
+  --success-bg: #E6F4EA;
+  --success-border: #CEEAD6;
+
+  --warning: #B06000;              /* High-contrast Google Amber 800 */
+  --warning-bg: #FEF7E0;
+  --warning-border: #FEEFC3;
+
+  --danger: #D93025;               /* Google Red 600 */
+  --danger-bg: #FCE8E6;
+  --danger-border: #FAD2CF;
+
+  --purple: #8430CE;               /* Google Purple 700 */
+  --purple-bg: #F3E8FD;
+  --purple-border: #D7AEFB;
+
+  /* 5. Fluid Typography Scale via clamp() (Mobile -> Tablet -> Desktop) */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  --text-xs: clamp(0.72rem, 0.68rem + 0.15vw, 0.78rem);
+  --text-sm: clamp(0.8rem, 0.76rem + 0.2vw, 0.875rem);
+  --text-base: clamp(0.875rem, 0.83rem + 0.22vw, 0.95rem);
+  --text-lg: clamp(1rem, 0.92rem + 0.35vw, 1.15rem);
+  --text-xl: clamp(1.15rem, 1.05rem + 0.5vw, 1.35rem);
+
+  /* 6. Fluid Spacing & Layout Dimensions via clamp() */
+  --space-1: clamp(0.25rem, 0.4vw, 0.375rem);
+  --space-2: clamp(0.45rem, 0.7vw, 0.625rem);
+  --space-3: clamp(0.65rem, 1vw, 0.875rem);
+  --space-4: clamp(0.875rem, 1.4vw, 1.25rem);
+  --space-5: clamp(1.15rem, 2vw, 1.75rem);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+  --radius-full: 9999px;
+
+  /* Lightweight Static Elevation (No Blur Thrashing) */
+  --shadow-card: 0 1px 2px 0 rgba(60, 64, 67, 0.08);
+  --focus-ring: 0 0 0 3px rgba(26, 115, 232, 0.2);
+
+  /* Adaptive Shell Dimensions */
+  --header-min-height: clamp(54px, 6vh, 64px);
+  --sidebar-width: clamp(210px, 18vw, 256px);
+  --sidebar-rail-width: 64px;
+
+  /* Backward Compatibility Aliases */
+  --bg-canvas: var(--bg-app);
+  --bg-card: var(--bg-surface);
+  --bg-card-border: var(--border-default);
+  --bg-card-border-hover: var(--border-strong);
+  --bg-surface-elevated: var(--bg-surface-secondary);
+  --bg-surface-active: var(--bg-surface-hover);
+  --accent-primary: var(--primary);
+  --accent-primary-hover: var(--primary-hover);
+  --accent-primary-glow: rgba(26, 115, 232, 0.15);
+  --accent-success: var(--success);
+  --accent-success-hover: #137333;
+  --accent-success-glow: rgba(30, 142, 62, 0.15);
+  --accent-warning: var(--warning);
+  --accent-warning-hover: #8f4e00;
+  --accent-warning-glow: rgba(176, 96, 0, 0.15);
+  --accent-danger: var(--danger);
+  --accent-danger-hover: #b31412;
+  --accent-danger-glow: rgba(217, 48, 37, 0.15);
+  --accent-purple: var(--purple);
+  --accent-purple-glow: rgba(132, 48, 206, 0.15);
+  --text-inverse: #FFFFFF;
+  --shadow-sm: var(--shadow-card);
+  --shadow-md: 0 2px 6px 0 rgba(60, 64, 67, 0.12);
+  --shadow-lg: 0 4px 12px 0 rgba(60, 64, 67, 0.15);
+  --transition-fast: 100ms ease-out;
+  --transition-base: 120ms ease-out;
 }

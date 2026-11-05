@@ -27,3 +27,7 @@ export async function logout(refreshToken) {
 export async function logoutAll() {
     return await httpClient.post('/api/v1/auth/logout-all', {});
 }
+
+export async function changePassword(passwords) {
+    return await httpClient.post('/api/v1/auth/change-password', passwords);
+}

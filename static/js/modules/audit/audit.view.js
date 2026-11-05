@@ -1,12 +1,15 @@
 /**
  * Audit Logging & Forensics View
  * Features:
- * - Paginated Audit Log Exploration with Action, Entity, and Status filters
- * - Real-time state diff visualizer (old_state vs new_state)
+ * - Filterable Audit Log Exploration (user_id, event_type, severity, outcome, page, size)
+ * - Automatic empty-param stripping to prevent 422 errors
+ * - Friendly 403 ACCESS_DENIED diagnostic card with 1-click copyable admin promotion command
+ * - Unclipped full-width state diff visualizer (changes_payload / extra_data)
  * - Multi-Format Export Hub (JSON, TXT, Markdown) with in-browser preview and file download
  */
 import { listAuditLogs, getAuditLog, exportAuditLogs } from './audit.api.js';
-import { showToast, formatDate, escapeHtml, renderBadge, syntaxHighlightJson } from '../../shared/ui-helpers.js';
+import { showToast, formatDate, escapeHtml, renderBadge, syntaxHighlightJson, copyToClipboard } from '../../shared/ui-helpers.js';
+import { sessionStore } from '../../core/session-store.js';
 
 export class AuditView {
     constructor() {
@@ -29,50 +32,61 @@ export class AuditView {
                     </div>
                 </div>
 
-                <!-- Filters Bar -->
+                <!-- Filters Bar (Stripping empty params automatically) -->
                 <div class="filter-toolbar">
                     <div class="filter-group">
-                        <label>Action Type:</label>
-                        <select id="filter-audit-action" class="form-select">
-                            <option value="">All Actions</option>
-                            <option value="LOGIN">LOGIN</option>
-                            <option value="REGISTER">REGISTER</option>
-                            <option value="UPDATE">UPDATE</option>
-                            <option value="LOGOUT">LOGOUT</option>
-                            <option value="TOKEN_REFRESH">TOKEN_REFRESH</option>
+                        <label>Event Type:</label>
+                        <select id="filter-audit-event" class="form-select">
+                            <option value="">All Events</option>
+                            <option value="auth.login">auth.login</option>
+                            <option value="auth.logout">auth.logout</option>
+                            <option value="auth.refresh">auth.refresh</option>
+                            <option value="auth.replay">auth.replay</option>
+                            <option value="user.register">user.register</option>
+                            <option value="user.update">user.update</option>
+                            <option value="user.deactivate">user.deactivate</option>
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Entity:</label>
-                        <select id="filter-audit-entity" class="form-select">
-                            <option value="">All Entities</option>
-                            <option value="User">User</option>
-                            <option value="Auth">Auth</option>
+                        <label>Severity:</label>
+                        <select id="filter-audit-severity" class="form-select">
+                            <option value="">All Severities</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="CRITICAL">CRITICAL</option>
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Status:</label>
-                        <select id="filter-audit-status" class="form-select">
-                            <option value="">All Statuses</option>
+                        <label>Outcome:</label>
+                        <select id="filter-audit-outcome" class="form-select">
+                            <option value="">All Outcomes</option>
                             <option value="SUCCESS">SUCCESS</option>
                             <option value="FAILURE">FAILURE</option>
                         </select>
                     </div>
+                    <div class="filter-group">
+                        <label>User ID:</label>
+                        <input type="text" id="filter-audit-user-id" class="form-input" placeholder="User ID" style="max-width: 100px;">
+                    </div>
                     <button class="btn btn-secondary" id="btn-apply-filters">Apply Filters</button>
                 </div>
+
+                <!-- 403 Forbidden Diagnostic Slot -->
+                <div id="audit-403-diagnostic" style="display: none;" class="mb-3"></div>
 
                 <!-- Split Workspace: Logs Table on Left, Diff / Details on Right -->
                 <div class="audit-split-view">
                     <!-- Logs Table Panel -->
-                    <div class="audit-table-panel">
+                    <div class="card p-0">
                         <div class="table-responsive">
                             <table class="data-table" id="table-audit-logs">
                                 <thead>
                                     <tr>
                                         <th>Timestamp</th>
-                                        <th>Action</th>
-                                        <th>Entity</th>
-                                        <th>Status</th>
+                                        <th>Event Type</th>
+                                        <th>Severity</th>
+                                        <th>Outcome</th>
                                         <th>Actor ID</th>
                                         <th>Action</th>
                                     </tr>
@@ -83,15 +97,15 @@ export class AuditView {
                             </table>
                         </div>
 
-                        <div class="pagination-footer">
+                        <div class="card-header p-3 m-0" style="border-top: 1px solid var(--border-default);">
                             <button class="btn btn-sm btn-outline" id="btn-audit-prev" disabled>&larr; Prev</button>
-                            <span id="audit-page-indicator">Page 1</span>
+                            <span id="audit-page-indicator" class="bold font-mono">Page 1</span>
                             <button class="btn btn-sm btn-outline" id="btn-audit-next">Next &rarr;</button>
                         </div>
                     </div>
 
-                    <!-- Diff & Payload Inspector Panel -->
-                    <div class="audit-detail-panel" id="audit-detail-panel">
+                    <!-- Diff & Payload Inspector Panel (Zero Truncation) -->
+                    <div class="card" id="audit-detail-panel">
                         <div class="empty-state">Select an audit log entry on the left to inspect state diff and metadata.</div>
                     </div>
                 </div>
@@ -103,22 +117,22 @@ export class AuditView {
                             <h3>Audit Export Hub</h3>
                             <p class="section-desc">Generate compliance reports in JSON, Plaintext, or Markdown formats</p>
                         </div>
-                        <div class="export-buttons">
+                        <div class="btn-group">
                             <button class="btn btn-outline" id="btn-export-json">📄 Export JSON</button>
                             <button class="btn btn-outline" id="btn-export-txt">📝 Export TXT</button>
                             <button class="btn btn-outline" id="btn-export-md">📑 Export Markdown</button>
                         </div>
                     </div>
 
-                    <div class="export-preview-box" id="export-preview-box" style="display: none;">
-                        <div class="export-preview-header">
-                            <h4 id="export-preview-title">Export Preview</h4>
-                            <div class="actions">
+                    <div class="card p-3 mt-2" id="export-preview-box" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h4 id="export-preview-title" class="m-0">Export Preview</h4>
+                            <div class="d-flex gap-2">
                                 <button class="btn btn-sm btn-primary" id="btn-download-export">⬇ Download File</button>
                                 <button class="btn btn-sm btn-outline" id="btn-close-export">Close</button>
                             </div>
                         </div>
-                        <pre class="syntax-code-block" id="export-preview-content"></pre>
+                        <pre class="code-block" id="export-preview-content"></pre>
                     </div>
                 </div>
             </div>
@@ -167,23 +181,60 @@ export class AuditView {
 
     async loadLogs() {
         const tbody = document.getElementById('tbody-audit-logs');
+        const diagBox = document.getElementById('audit-403-diagnostic');
         if (!tbody) return;
 
-        const action = document.getElementById('filter-audit-action')?.value;
-        const entity = document.getElementById('filter-audit-entity')?.value;
-        const status = document.getElementById('filter-audit-status')?.value;
+        const eventType = document.getElementById('filter-audit-event')?.value;
+        const severity = document.getElementById('filter-audit-severity')?.value;
+        const outcome = document.getElementById('filter-audit-outcome')?.value;
+        const userId = document.getElementById('filter-audit-user-id')?.value;
 
         const params = {
             page: this.page,
-            page_size: this.pageSize,
+            size: this.pageSize,
         };
-        if (action) params.action = action;
-        if (entity) params.entity_type = entity;
-        if (status) params.status = status;
+        if (eventType) params.event_type = eventType;
+        if (severity) params.severity = severity;
+        if (outcome) params.outcome = outcome;
+        if (userId) params.user_id = userId;
 
         try {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Fetching audit records...</td></tr>';
+            if (diagBox) diagBox.style.display = 'none';
+
             const res = await listAuditLogs(params);
+
+            if (res.status === 403) {
+                // Show friendly 403 Access Denied diagnostic card with promotion command
+                const activeSlot = sessionStore.getActiveSlot();
+                const session = sessionStore.getSession(activeSlot);
+                const currentId = session?.user?.id || (session?.accessClaims?.sub) || '<user_id>';
+                const promoCmd = `python manage.py assign-role --user-id ${currentId} --role admin`;
+
+                if (diagBox) {
+                    diagBox.innerHTML = `
+                        <div class="diagnostic-card">
+                            <h4>🛡️ 403 ACCESS_DENIED — Casbin Authorization Guard</h4>
+                            <p>Current authenticated subject <strong>(User ID: ${escapeHtml(String(currentId))})</strong> does not possess the <code>admin</code> role or <code>audit:read</code> permission required to inspect the forensic audit trail.</p>
+                            <p>To grant access, execute the following command in your terminal and reload:</p>
+                            <div class="d-flex align-items-center gap-2">
+                                <code class="breakable-mono p-2">${escapeHtml(promoCmd)}</code>
+                                <button class="btn btn-sm btn-secondary" id="btn-copy-audit-promo">Copy Command</button>
+                            </div>
+                        </div>
+                    `;
+                    diagBox.style.display = 'block';
+
+                    document.getElementById('btn-copy-audit-promo')?.addEventListener('click', () => {
+                        copyToClipboard(promoCmd).then(() => {
+                            showToast('Promotion command copied to clipboard!', 'success', 2000);
+                        });
+                    });
+                }
+
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">403 Forbidden: Insufficient Casbin permissions. See diagnostic above.</td></tr>`;
+                return;
+            }
 
             if (res.ok && res.data) {
                 const items = Array.isArray(res.data) ? res.data : (res.data.items || []);
@@ -195,14 +246,19 @@ export class AuditView {
                 }
 
                 tbody.innerHTML = items.map(log => {
-                    const isSuccess = log.status === 'SUCCESS' || (log.status_code >= 200 && log.status_code < 400);
+                    const isSuccess = log.outcome === 'SUCCESS' || log.status === 'SUCCESS' || (log.status_code >= 200 && log.status_code < 400);
+                    const sev = log.severity || 'INFO';
+                    let sevBadge = 'badge-info';
+                    if (sev === 'WARNING') sevBadge = 'badge-warning';
+                    if (sev === 'ERROR' || sev === 'CRITICAL') sevBadge = 'badge-danger';
+
                     return `
                         <tr class="audit-row" data-id="${log.id}">
-                            <td>${formatDate(log.timestamp || log.created_at)}</td>
-                            <td><span class="bold">${escapeHtml(log.action)}</span></td>
-                            <td>${escapeHtml(log.entity_type || log.resource || '-')}</td>
-                            <td>${renderBadge(isSuccess ? 'success' : 'danger', log.status || (isSuccess ? 'SUCCESS' : 'FAILURE'))}</td>
-                            <td class="code-font">${log.actor_id ? escapeHtml(log.actor_id.substring(0, 8)) + '...' : 'System'}</td>
+                            <td class="font-mono text-xs">${formatDate(log.timestamp || log.created_at)}</td>
+                            <td><span class="bold">${escapeHtml(log.event_type || log.action || '-')}</span></td>
+                            <td><span class="badge ${sevBadge}">${escapeHtml(sev)}</span></td>
+                            <td>${renderBadge(isSuccess ? 'success' : 'danger', log.outcome || log.status || (isSuccess ? 'SUCCESS' : 'FAILURE'))}</td>
+                            <td><span class="breakable-mono">${escapeHtml(String(log.actor_id || log.user_id || 'System'))}</span></td>
                             <td>
                                 <button class="btn btn-xs btn-outline btn-inspect-audit" data-id="${log.id}">View Diff</button>
                             </td>
@@ -250,76 +306,77 @@ export class AuditView {
         const panel = document.getElementById('audit-detail-panel');
         if (!panel) return;
 
-        const oldState = log.old_state || log.previous_state || null;
-        const newState = log.new_state || log.current_state || log.changes || null;
-
+        const isSuccess = log.outcome === 'SUCCESS' || log.status === 'SUCCESS';
         panel.innerHTML = `
-            <div class="audit-detail-header">
-                <h3>Event: ${escapeHtml(log.action)} on ${escapeHtml(log.entity_type || 'Unknown')}</h3>
-                <span class="code-font small text-muted">ID: ${escapeHtml(log.id)}</span>
+            <div class="card-header p-0 mb-3">
+                <h4>Audit Log #${log.id} — ${escapeHtml(log.event_type || log.action || 'Event')}</h4>
+                ${renderBadge(isSuccess ? 'success' : 'danger', log.outcome || (isSuccess ? 'SUCCESS' : 'FAILURE'))}
             </div>
 
-            <div class="audit-meta-summary">
-                <div class="meta-line"><strong>Actor:</strong> <code>${escapeHtml(log.actor_id || 'Anonymous / System')}</code></div>
-                <div class="meta-line"><strong>Client IP:</strong> <code>${escapeHtml(log.ip_address || log.client_ip || '127.0.0.1')}</code></div>
-                <div class="meta-line"><strong>Request ID:</strong> <code>${escapeHtml(log.request_id || '-')}</code></div>
-                <div class="meta-line"><strong>Timestamp:</strong> <span>${formatDate(log.timestamp || log.created_at)}</span></div>
+            <div class="claims-grid mb-3">
+                <div class="claim-row">
+                    <span class="claim-label">Timestamp (UTC):</span>
+                    <span class="claim-val font-mono">${escapeHtml(String(log.timestamp || log.created_at || '-'))}</span>
+                </div>
+                <div class="claim-row">
+                    <span class="claim-label">Actor ID / Target Entity:</span>
+                    <span class="claim-val breakable-mono">${escapeHtml(String(log.actor_id || log.user_id || 'System'))} ➔ ${escapeHtml(String(log.entity_type || '-'))} (ID: ${escapeHtml(String(log.entity_id || '-'))})</span>
+                </div>
+                <div class="claim-row">
+                    <span class="claim-label">Correlation X-Request-ID:</span>
+                    <span class="claim-val breakable-mono">${escapeHtml(log.request_id || 'None')}</span>
+                </div>
+                <div class="claim-row">
+                    <span class="claim-label">Client IP / User-Agent:</span>
+                    <span class="claim-val breakable-mono">${escapeHtml(log.ip_address || '127.0.0.1')} | ${escapeHtml(log.user_agent || '-')}</span>
+                </div>
             </div>
 
-            <div class="diff-viewer-wrapper mt-3">
-                <div class="diff-header-bar">
-                    <span class="diff-title">State Mutation Diff</span>
-                </div>
-                <div class="diff-columns">
-                    <div class="diff-column">
-                        <span class="diff-col-title diff-col-old">Previous State (Before)</span>
-                        <pre class="syntax-code-block">${syntaxHighlightJson(oldState)}</pre>
-                    </div>
-                    <div class="diff-column">
-                        <span class="diff-col-title diff-col-new">New State (After)</span>
-                        <pre class="syntax-code-block">${syntaxHighlightJson(newState)}</pre>
-                    </div>
-                </div>
+            <div class="card-section">
+                <h4>Changes Payload (State Diff):</h4>
+                <pre class="code-block">${syntaxHighlightJson(log.changes_payload || log.changes || {})}</pre>
+            </div>
+
+            <div class="card-section mt-3">
+                <h4>Extra Metadata:</h4>
+                <pre class="code-block">${syntaxHighlightJson(log.extra_data || log.metadata || {})}</pre>
             </div>
         `;
     }
 
     async handleExport(format) {
-        showToast(`Preparing ${format.toUpperCase()} export...`, 'info', 2000);
-        try {
-            const res = await exportAuditLogs(format, {});
-            if (res.ok && res.data) {
-                const content = typeof res.data === 'object' ? JSON.stringify(res.data, null, 2) : String(res.data);
-                const previewBox = document.getElementById('export-preview-box');
-                const titleEl = document.getElementById('export-preview-title');
-                const contentEl = document.getElementById('export-preview-content');
-                const downloadBtn = document.getElementById('btn-download-export');
+        showToast(`Preparing ${format.toUpperCase()} export...`, 'info', 1500);
+        const res = await exportAuditLogs(format);
 
-                if (previewBox && titleEl && contentEl) {
-                    titleEl.textContent = `Export Preview: audit_export.${format === 'markdown' ? 'md' : format}`;
-                    contentEl.textContent = content;
-                    previewBox.style.display = 'block';
+        if (res.ok && res.data) {
+            const previewBox = document.getElementById('export-preview-box');
+            const previewTitle = document.getElementById('export-preview-title');
+            const previewContent = document.getElementById('export-preview-content');
+            const downloadBtn = document.getElementById('btn-download-export');
 
-                    if (downloadBtn) {
-                        downloadBtn.onclick = () => {
-                            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `audit_export_${Date.now()}.${format === 'markdown' ? 'md' : format}`;
-                            document.body.appendChild(a);
-                            a.click();
-                            a.remove();
-                            URL.revokeObjectURL(url);
-                            showToast('File download started', 'success', 2000);
-                        };
-                    }
+            if (previewBox && previewContent) {
+                previewBox.style.display = 'block';
+                if (previewTitle) previewTitle.textContent = `Export Preview (${format.toUpperCase()})`;
+                const textContent = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2);
+                previewContent.textContent = textContent;
+
+                if (downloadBtn) {
+                    downloadBtn.onclick = () => {
+                        const blob = new Blob([textContent], { type: format === 'json' ? 'application/json' : 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `audit_export_${Date.now()}.${format === 'markdown' ? 'md' : format}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        showToast(`✓ Downloaded ${format.toUpperCase()} export!`, 'success');
+                    };
                 }
-            } else {
-                showToast(`Export failed: ${res.data?.message || res.status}`, 'danger', 3000);
             }
-        } catch (err) {
-            showToast(`Export error: ${err.message}`, 'danger', 3000);
+        } else {
+            showToast(`Export failed: Status ${res.status}`, 'error');
         }
     }
 }

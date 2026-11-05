@@ -1,11 +1,12 @@
 /**
  * User Management & RBAC View
- * Inspects current profile (/me), tests PATCH updates, Casbin 403 authorization,
+ * Inspects current profile (/me), tests user lookup (/users/{id}),
+ * partial PATCH updates with field inclusion toggles, Casbin 403 authorization,
  * soft deactivation, and paginated user directory.
  */
-import { getMe, listUsers, updateUser } from './user.api.js';
+import { getMe, getUser, listUsers, updateUser } from './user.api.js';
 import { sessionStore } from '../../core/session-store.js';
-import { showToast, formatDate, escapeHtml, renderBadge } from '../../shared/ui-helpers.js';
+import { showToast, formatDate, escapeHtml, renderBadge, copyToClipboard } from '../../shared/ui-helpers.js';
 
 export class UserView {
     constructor() {
@@ -24,11 +25,11 @@ export class UserView {
                     <div class="card-header">
                         <h2>User Management & RBAC</h2>
                     </div>
-                    <div class="auth-gate-banner">
-                        <div class="gate-icon">🔒</div>
+                    <div class="empty-state">
+                        <div style="font-size: 2.5rem; margin-bottom: var(--space-2);">🔒</div>
                         <h3>Authentication Required</h3>
                         <p>No active token found for <strong>${activeSlot === 'device_b' ? 'Device B' : 'Device A'}</strong>.</p>
-                        <p>Please log in or click <strong>"1-Click Demo Setup"</strong> in the Authentication tab first.</p>
+                        <p class="text-muted">Please log in or click <strong>"1-Click Demo Setup"</strong> in the Authentication tab first.</p>
                     </div>
                 </div>
             `;
@@ -46,21 +47,25 @@ export class UserView {
                     </div>
                 </div>
 
-                <div class="profile-layout-grid">
+                <!-- 2-Column Grid: Profile Card & Mutation / Lookup Box -->
+                <div class="grid-2">
                     <!-- Current User Card -->
-                    <div class="profile-card">
-                        <div class="profile-header">
-                            <div class="avatar-circle" id="user-avatar">👤</div>
-                            <div class="profile-title">
-                                <h3 id="user-display-name">Loading Profile...</h3>
-                                <span class="profile-email" id="user-display-email">-</span>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex align-items-center gap-2">
+                                <span style="font-size: 1.5rem;">👤</span>
+                                <div>
+                                    <h3 id="user-display-name" class="m-0">Loading Profile...</h3>
+                                    <span class="text-muted text-xs" id="user-display-email">-</span>
+                                </div>
                             </div>
+                            <span id="user-detail-role-badge"></span>
                         </div>
 
                         <div class="profile-details-table">
                             <div class="detail-row">
                                 <span class="label">User ID:</span>
-                                <span class="val code-font" id="user-detail-id">-</span>
+                                <span class="val breakable-mono" id="user-detail-id">-</span>
                             </div>
                             <div class="detail-row">
                                 <span class="label">Assigned Role:</span>
@@ -80,37 +85,73 @@ export class UserView {
                             </div>
                             <div class="detail-row">
                                 <span class="label">Created At:</span>
-                                <span class="val" id="user-detail-created">-</span>
+                                <span class="val text-xs font-mono" id="user-detail-created">-</span>
                             </div>
                             <div class="detail-row">
                                 <span class="label">Last Updated:</span>
-                                <span class="val" id="user-detail-updated">-</span>
+                                <span class="val text-xs font-mono" id="user-detail-updated">-</span>
                             </div>
+                        </div>
+
+                        <!-- Direct Lookup by ID Input -->
+                        <div class="mt-3 p-3 bg-surface-secondary border-radius-sm" style="background-color: var(--bg-surface-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border-default);">
+                            <h4 class="mb-2">Lookup User by ID</h4>
+                            <div class="d-flex gap-2">
+                                <input type="number" id="input-lookup-id" class="form-input" placeholder="User ID" min="1" style="max-width: 120px;">
+                                <button class="btn btn-sm btn-secondary" id="btn-lookup-user">Fetch User</button>
+                            </div>
+                            <div id="lookup-result-box" class="mt-2 text-xs" style="display: none;"></div>
                         </div>
                     </div>
 
-                    <!-- Actions & Mutation Box -->
-                    <div class="profile-actions-box">
-                        <div class="card-section">
-                            <h4>Update User Profile (PATCH)</h4>
-                            <form id="form-user-update">
-                                <div class="form-group">
-                                    <label>Full Name</label>
-                                    <input type="text" id="edit-user-fullname" class="form-input" placeholder="Enter updated name" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary w-100" id="btn-save-profile">
-                                    Save Changes (PATCH /api/v1/users/{id})
-                                </button>
-                            </form>
-                        </div>
+                    <!-- Actions & Mutation Box (PATCH) -->
+                    <div class="card">
+                        <h4>Partial Update (PATCH /api/v1/users/{id})</h4>
+                        <p class="text-xs text-muted mb-3">Test selective field updates. Only checked fields will be sent in the JSON payload.</p>
+                        
+                        <form id="form-user-update">
+                            <div class="form-group">
+                                <label class="d-flex align-items-center gap-2">
+                                    <input type="checkbox" id="chk-update-name" checked>
+                                    <span>Update Full Name:</span>
+                                </label>
+                                <input type="text" id="edit-user-fullname" class="form-input" placeholder="Enter updated name">
+                            </div>
 
-                        <div class="card-section mt-3">
+                            <div class="form-group">
+                                <label class="d-flex align-items-center gap-2">
+                                    <input type="checkbox" id="chk-update-role">
+                                    <span>Update Role (Admin Only):</span>
+                                </label>
+                                <select id="edit-user-role" class="form-select">
+                                    <option value="user">user</option>
+                                    <option value="admin">admin</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="d-flex align-items-center gap-2">
+                                    <input type="checkbox" id="chk-update-active">
+                                    <span>Update Active Status:</span>
+                                </label>
+                                <select id="edit-user-active" class="form-select">
+                                    <option value="true">Active (true)</option>
+                                    <option value="false">Inactive (false)</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100" id="btn-save-profile">
+                                Save Changes (PATCH)
+                            </button>
+                        </form>
+
+                        <div class="card-section mt-4 pt-3" style="border-top: 1px solid var(--border-default);">
                             <h4>Security & Governance Controls</h4>
-                            <div class="security-btn-stack">
-                                <button class="btn btn-outline btn-warning w-100" id="btn-test-rbac-forbidden" title="Simulates a normal user attempting to access Admin endpoints (Casbin 403 check)">
+                            <div class="d-flex flex-column gap-2 mt-2">
+                                <button class="btn btn-outline btn-warning w-100" id="btn-test-rbac-forbidden" title="Simulates accessing Admin directory">
                                     🛡️ Test Casbin RBAC Guard (Attempt Admin Action)
                                 </button>
-                                <button class="btn btn-outline btn-danger w-100 mt-2" id="btn-deactivate-user" title="Sets is_active=false on this account">
+                                <button class="btn btn-danger w-100" id="btn-deactivate-user" title="Sets is_active=false on this account">
                                     ⚠️ Soft-Deactivate My Account
                                 </button>
                             </div>
@@ -119,15 +160,15 @@ export class UserView {
                 </div>
 
                 <!-- Paginated Directory Table -->
-                <div class="card-section mt-4">
+                <div class="card mt-4">
                     <div class="section-header-row">
                         <div>
                             <h3>Tenant User Directory</h3>
-                            <p class="section-desc">Paginated list of users across tenant (Requires READ permissions)</p>
+                            <p class="section-desc">Paginated directory across tenant (Requires admin role or users:read permission)</p>
                         </div>
-                        <div class="pagination-controls">
+                        <div class="d-flex align-items-center gap-2">
                             <button class="btn btn-sm btn-outline" id="btn-dir-prev" disabled>&larr; Prev</button>
-                            <span class="page-indicator" id="dir-page-indicator">Page 1</span>
+                            <span class="font-mono text-xs bold" id="dir-page-indicator">Page 1</span>
                             <button class="btn btn-sm btn-outline" id="btn-dir-next">Next &rarr;</button>
                         </div>
                     </div>
@@ -165,6 +206,11 @@ export class UserView {
                 e.preventDefault();
                 this.handleUpdateProfile();
             });
+        }
+
+        const lookupBtn = document.getElementById('btn-lookup-user');
+        if (lookupBtn) {
+            lookupBtn.addEventListener('click', () => this.handleLookupUser());
         }
 
         const rbacBtn = document.getElementById('btn-test-rbac-forbidden');
@@ -217,6 +263,7 @@ export class UserView {
                 const createdEl = document.getElementById('user-detail-created');
                 const updatedEl = document.getElementById('user-detail-updated');
                 const editInput = document.getElementById('edit-user-fullname');
+                const roleBadge = document.getElementById('user-detail-role-badge');
 
                 if (nameEl) nameEl.textContent = user.name || 'Unnamed User';
                 if (emailEl) emailEl.textContent = user.email;
@@ -228,6 +275,7 @@ export class UserView {
                 if (createdEl) createdEl.textContent = formatDate(user.created_at);
                 if (updatedEl) updatedEl.textContent = formatDate(user.updated_at);
                 if (editInput) editInput.value = user.name || '';
+                if (roleBadge) roleBadge.innerHTML = renderBadge(user.role === 'admin' ? 'danger' : 'info', user.role || 'user');
 
                 if (manual) showToast('Profile refreshed', 'success', 1500);
             } else {
@@ -238,25 +286,62 @@ export class UserView {
         }
     }
 
+    async handleLookupUser() {
+        const idInput = document.getElementById('input-lookup-id');
+        const resultBox = document.getElementById('lookup-result-box');
+        const userId = idInput?.value;
+
+        if (!userId) {
+            showToast('Enter a valid User ID', 'warning');
+            return;
+        }
+
+        const res = await getUser(userId);
+        if (resultBox) {
+            resultBox.style.display = 'block';
+            if (res.ok && res.data) {
+                resultBox.innerHTML = `
+                    <div class="card p-2 bg-surface">
+                        <strong>User #${res.data.id}:</strong> ${escapeHtml(res.data.name)} &lt;${escapeHtml(res.data.email)}&gt; | Role: <code>${escapeHtml(res.data.role)}</code>
+                    </div>
+                `;
+            } else {
+                resultBox.innerHTML = `<span class="badge badge-danger">Lookup failed (Status ${res.status}): ${escapeHtml(res.data?.error?.message || 'Not Found')}</span>`;
+            }
+        }
+    }
+
     async handleUpdateProfile() {
         if (!this.currentUser) return;
-        const fullNameInput = document.getElementById('edit-user-fullname');
-        const newName = fullNameInput?.value.trim();
+        const chkName = document.getElementById('chk-update-name')?.checked;
+        const chkRole = document.getElementById('chk-update-role')?.checked;
+        const chkActive = document.getElementById('chk-update-active')?.checked;
 
-        if (!newName) {
-            showToast('Full name cannot be empty', 'warning', 2000);
+        const payload = {};
+        if (chkName) {
+            payload.name = document.getElementById('edit-user-fullname')?.value.trim();
+        }
+        if (chkRole) {
+            payload.role = document.getElementById('edit-user-role')?.value;
+        }
+        if (chkActive) {
+            payload.is_active = document.getElementById('edit-user-active')?.value === 'true';
+        }
+
+        if (Object.keys(payload).length === 0) {
+            showToast('Check at least one field to update in PATCH payload', 'warning', 2500);
             return;
         }
 
         try {
-            showToast('Updating profile...', 'info', 1500);
-            const res = await updateUser(this.currentUser.id, { name: newName });
+            showToast('Sending PATCH update...', 'info', 1500);
+            const res = await updateUser(this.currentUser.id, payload);
             if (res.ok) {
-                showToast('Profile updated successfully!', 'success', 2500);
+                showToast('✓ User updated successfully!', 'success', 2500);
                 this.loadProfile(false);
                 this.loadDirectory();
             } else {
-                showToast(`Update rejected: ${res.data?.message || res.status}`, 'danger', 3500);
+                showToast(`Update rejected: ${res.data?.error?.message || res.status}`, 'danger', 3500);
             }
         } catch (err) {
             showToast(`Update error: ${err.message}`, 'danger', 3500);
@@ -266,7 +351,6 @@ export class UserView {
     async handleTestRbac() {
         showToast('Testing Casbin RBAC Authorization...', 'info', 2000);
         try {
-            // Attempt an operation that tests permission limits
             const res = await listUsers(1, 10);
             if (res.status === 403) {
                 showToast('🛡️ Casbin RBAC Verified: 403 Forbidden! Non-admin is correctly denied.', 'warning', 4500);
@@ -282,7 +366,7 @@ export class UserView {
 
     async handleDeactivate() {
         if (!this.currentUser) return;
-        if (!confirm(`Are you sure you want to deactivate account (${this.currentUser.email})? You will be logged out immediately.`)) {
+        if (!confirm(`Are you sure you want to deactivate account (${this.currentUser.email})? All sessions will be revoked immediately.`)) {
             return;
         }
 
@@ -290,11 +374,11 @@ export class UserView {
             showToast('Deactivating account...', 'warning', 2000);
             const res = await updateUser(this.currentUser.id, { is_active: false });
             if (res.ok) {
-                showToast('Account deactivated. Clearing sessions...', 'danger', 3500);
-                sessionStore.clearSession();
+                showToast('✓ Account deactivated. Clearing sessions...', 'danger', 3500);
+                sessionStore.clearAllSessions();
                 setTimeout(() => window.location.reload(), 1500);
             } else {
-                showToast(`Deactivation rejected: ${res.data?.message || res.status}`, 'danger', 3500);
+                showToast(`Deactivation rejected: ${res.data?.error?.message || res.status}`, 'danger', 3500);
             }
         } catch (err) {
             showToast(`Deactivation error: ${err.message}`, 'danger', 3500);
@@ -311,9 +395,22 @@ export class UserView {
 
         try {
             const res = await listUsers(this.directoryPage, this.directoryPageSize);
+            if (res.status === 403) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center p-4">
+                            <div class="diagnostic-card d-inline-block text-left" style="max-width: 500px; margin: 0 auto;">
+                                <h4>🛡️ 403 ACCESS_DENIED — Casbin RBAC Guard</h4>
+                                <p class="text-xs">Only administrators can list users in the directory. Standard users are denied with 403.</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
             if (res.ok && res.data) {
                 const items = Array.isArray(res.data) ? res.data : (res.data.items || []);
-                const total = res.data.total ?? items.length;
 
                 if (items.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No users found.</td></tr>';
@@ -322,13 +419,13 @@ export class UserView {
 
                 tbody.innerHTML = items.map(u => `
                     <tr>
-                        <td class="code-font" title="${escapeHtml(String(u.id))}">${escapeHtml(String(u.id))}</td>
+                        <td class="font-mono text-xs">${escapeHtml(String(u.id))}</td>
                         <td class="bold">${escapeHtml(u.email)}</td>
                         <td>${escapeHtml(u.name || '-')}</td>
                         <td>${renderBadge(u.role === 'admin' ? 'danger' : 'info', u.role || 'user')}</td>
                         <td>${renderBadge(u.is_active ? 'success' : 'danger', u.is_active ? 'Active' : 'Inactive')}</td>
                         <td>${renderBadge(u.is_verified ? 'success' : 'warning', u.is_verified ? 'Yes' : 'No')}</td>
-                        <td>${formatDate(u.created_at)}</td>
+                        <td class="font-mono text-xs">${formatDate(u.created_at)}</td>
                     </tr>
                 `).join('');
 
@@ -336,7 +433,7 @@ export class UserView {
                 if (prevBtn) prevBtn.disabled = this.directoryPage <= 1;
                 if (nextBtn) nextBtn.disabled = items.length < this.directoryPageSize;
             } else {
-                tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Access Denied or Error (Status ${res.status})</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load directory (Status ${res.status})</td></tr>`;
             }
         } catch (err) {
             tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error: ${escapeHtml(err.message)}</td></tr>`;
