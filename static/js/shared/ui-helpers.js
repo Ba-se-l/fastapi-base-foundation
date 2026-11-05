@@ -39,10 +39,12 @@ export function showToast(message, type = 'info', duration = 3500) {
     `;
 
     const closeBtn = toast.querySelector('.toast-close');
-    closeBtn.addEventListener('click', () => {
-        toast.classList.add('fade-out');
-        setTimeout(() => toast.remove(), 250);
-    });
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            toast.classList.add('fade-out');
+            setTimeout(() => toast.remove(), 250);
+        });
+    }
 
     container.appendChild(toast);
 
@@ -66,21 +68,22 @@ export function syntaxHighlightJson(json) {
     }
     if (!json) return '<span class="json-null">null</span>';
 
-    json = escapeHtml(json);
-    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-        let cls = 'json-number';
-        if (/^"/.test(match)) {
-            if (/:$/.test(match)) {
-                cls = 'json-key';
-            } else {
-                cls = 'json-string';
+    // Safely tokenize without catastrophic backtracking (ReDoS hardened)
+    const escaped = escapeHtml(json);
+    return escaped.replace(/(&quot;.*?&quot;)(\s*:)?|(\b(?:true|false|null)\b)|(-?\b\d+(?:\.\d+)?\b)/g, (match, str, colon, bool, num) => {
+        if (str) {
+            if (colon) {
+                return `<span class="json-key">${str}</span>${colon}`;
             }
-        } else if (/true|false/.test(match)) {
-            cls = 'json-boolean';
-        } else if (/null/.test(match)) {
-            cls = 'json-null';
+            return `<span class="json-string">${str}</span>`;
         }
-        return '<span class="' + cls + '">' + match + '</span>';
+        if (bool) {
+            return `<span class="json-boolean">${bool}</span>`;
+        }
+        if (num) {
+            return `<span class="json-number">${num}</span>`;
+        }
+        return match;
     });
 }
 
@@ -88,6 +91,7 @@ export function formatDate(isoStr) {
     if (!isoStr) return '-';
     try {
         const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return isoStr;
         return d.toLocaleString(undefined, {
             year: 'numeric',
             month: '2-digit',

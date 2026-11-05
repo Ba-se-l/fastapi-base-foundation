@@ -98,7 +98,7 @@ class SessionStore {
     }
 
     setActiveSlot(slot) {
-        if (slot === 'device_a' || slot === 'device_b') {
+        if ((slot === 'device_a' || slot === 'device_b') && this.state.activeSlot !== slot) {
             this.state.activeSlot = slot;
             this._save();
         }
@@ -135,6 +135,10 @@ class SessionStore {
         _tokenMemoryVault.delete(targetSlot);
         this.state[targetSlot] = null;
         this._save();
+    }
+
+    removeSession(slot = null) {
+        return this.clearSession(slot);
     }
 
     clearAllSessions() {
@@ -194,8 +198,11 @@ class SessionStore {
     }
 
     setCustomRequestId(val) {
-        this.state.customRequestId = val.trim();
-        this._save();
+        const trimmed = (val || '').trim();
+        if (this.state.customRequestId !== trimmed) {
+            this.state.customRequestId = trimmed;
+            this._save();
+        }
     }
 }
 

@@ -11,6 +11,7 @@ import { networkInspector } from './shared/inspector-panel.js';
 import { sessionStore } from './core/session-store.js';
 import { eventBus } from './core/event-emitter.js';
 import { checkHealth } from './modules/health/health.api.js';
+import { escapeHtml } from './shared/ui-helpers.js';
 
 class App {
     constructor() {
@@ -142,7 +143,7 @@ class App {
             if (session?.accessToken) {
                 const sub = session.accessClaims?.sub || 'User';
                 const email = session.user?.email || (session.accessClaims?.email) || sub.substring(0, 12);
-                userChip.innerHTML = `<strong>${activeSlot === 'device_b' ? 'Dev B' : 'Dev A'}:</strong> ${email}`;
+                userChip.innerHTML = `<strong>${activeSlot === 'device_b' ? 'Dev B' : 'Dev A'}:</strong> ${escapeHtml(email)}`;
             } else {
                 userChip.innerHTML = `<strong>${activeSlot === 'device_b' ? 'Dev B' : 'Dev A'}:</strong> <span class="text-muted">Logged Out</span>`;
             }
@@ -172,8 +173,8 @@ class App {
     }
 }
 
-// Boot application
-const app = new App();
+// Bootstrap Application on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
+    const app = new App();
     app.init();
 });

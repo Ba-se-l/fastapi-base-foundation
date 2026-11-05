@@ -23,7 +23,9 @@ class EventEmitter {
 
     emit(event, data) {
         if (this.listeners.has(event)) {
-            this.listeners.get(event).forEach(callback => {
+            // Snapshot listeners array to prevent infinite loops if listeners are added/removed during emit
+            const snapshot = Array.from(this.listeners.get(event));
+            snapshot.forEach(callback => {
                 try {
                     callback(data);
                 } catch (err) {

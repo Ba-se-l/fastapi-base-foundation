@@ -109,11 +109,11 @@ export class AuthView {
 
                 <!-- Manual Operations & Password Change -->
                 <div class="card-section mt-4">
-                    <h3>Manual Credential Operations (Targeting ${activeSlot === 'device_a' ? 'Device A' : 'Device B'})</h3>
+                    <h3 id="heading-manual-ops">Manual Credential Operations (Targeting ${activeSlot === 'device_a' ? 'Device A' : 'Device B'})</h3>
                     <div class="grid-3">
                         <!-- Login Form -->
                         <div class="card">
-                            <h4>Login to ${activeSlot === 'device_a' ? 'Device A' : 'Device B'}</h4>
+                            <h4 id="heading-login-form">Login to ${activeSlot === 'device_a' ? 'Device A' : 'Device B'}</h4>
                             <form id="form-login">
                                 <div class="form-group">
                                     <label>Email Address</label>
@@ -251,7 +251,11 @@ export class AuthView {
     }
 
     bindEvents() {
-        if (this.unsubscribe) this.unsubscribe();
+        // Subscribe to session changes once during component mount
+        if (this.unsubscribe) {
+            this.unsubscribe();
+            this.unsubscribe = null;
+        }
         this.unsubscribe = eventBus.on('session:changed', () => {
             this.updateView();
         });
@@ -287,27 +291,6 @@ export class AuthView {
             });
         }
 
-        // Action Buttons inside device cards
-        document.querySelectorAll('.btn-rotate').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const slot = btn.dataset.slot;
-                this.handleRotate(slot);
-            });
-        });
-
-        document.querySelectorAll('.btn-logout').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const slot = btn.dataset.slot;
-                this.handleLogout(slot);
-            });
-        });
-
-        document.querySelectorAll('.btn-logout-all').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.handleLogoutAll();
-            });
-        });
-
         // Replay Trigger
         const replayBtn = document.getElementById('btn-trigger-replay');
         if (replayBtn) {
@@ -340,6 +323,31 @@ export class AuthView {
                 this.handleChangePassword();
             });
         }
+
+        // Card action buttons
+        this._bindCardActions();
+    }
+
+    _bindCardActions() {
+        document.querySelectorAll('.btn-rotate').forEach(btn => {
+            btn.onclick = () => {
+                const slot = btn.dataset.slot;
+                this.handleRotate(slot);
+            };
+        });
+
+        document.querySelectorAll('.btn-logout').forEach(btn => {
+            btn.onclick = () => {
+                const slot = btn.dataset.slot;
+                this.handleLogout(slot);
+            };
+        });
+
+        document.querySelectorAll('.btn-logout-all').forEach(btn => {
+            btn.onclick = () => {
+                this.handleLogoutAll();
+            };
+        });
     }
 
     cleanup() {
@@ -350,11 +358,70 @@ export class AuthView {
     }
 
     updateView() {
-        const viewport = document.getElementById('workspace-viewport');
-        if (viewport) {
-            viewport.innerHTML = this.render();
-            this.bindEvents();
+        // Targeted DOM updates: preserves form state and avoids infinite event loops
+        const activeSlot = sessionStore.getActiveSlot();
+        const sessionA = sessionStore.getSession('device_a');
+        const sessionB = sessionStore.getSession('device_b');
+        const replay = sessionStore.getReplayBuffer();
+
+        // 1. Update active target pills
+        const pillA = document.getElementById('pill-device-a');
+        const pillB = document.getElementById('pill-device-b');
+        if (pillA) pillA.classList.toggle('active', activeSlot === 'device_a');
+        if (pillB) pillB.classList.toggle('active', activeSlot === 'device_b');
+
+        // 2. Update Device A Card
+        const cardA = document.getElementById('card-device-a');
+        if (cardA) {
+            cardA.classList.toggle('is-active-device', activeSlot === 'device_a');
+            const statusA = cardA.querySelector('.device-status');
+            if (statusA) {
+                statusA.className = `device-status ${sessionA ? 'status-online' : 'status-offline'}`;
+                statusA.textContent = sessionA ? '● Authenticated' : '○ Logged Out';
+            }
+            const bodyA = cardA.querySelector('.device-body');
+            if (bodyA) {
+                bodyA.innerHTML = this._renderDeviceContent('device_a', sessionA);
+            }
         }
+
+        // 3. Update Device B Card
+        const cardB = document.getElementById('card-device-b');
+        if (cardB) {
+            cardB.classList.toggle('is-active-device', activeSlot === 'device_b');
+            const statusB = cardB.querySelector('.device-status');
+            if (statusB) {
+                statusB.className = `device-status ${sessionB ? 'status-online' : 'status-offline'}`;
+                statusB.textContent = sessionB ? '● Authenticated' : '○ Logged Out';
+            }
+            const bodyB = cardB.querySelector('.device-body');
+            if (bodyB) {
+                bodyB.innerHTML = this._renderDeviceContent('device_b', sessionB);
+            }
+        }
+
+        // 4. Update Replay Box
+        const replayBox = document.getElementById('replay-status-box');
+        if (replayBox) {
+            replayBox.innerHTML = this._renderReplayStatus(replay);
+        }
+        const replayBtn = document.getElementById('btn-trigger-replay');
+        if (replayBtn) {
+            replayBtn.disabled = !replay;
+        }
+
+        // 5. Update Headings
+        const manualHeading = document.getElementById('heading-manual-ops');
+        if (manualHeading) {
+            manualHeading.textContent = `Manual Credential Operations (Targeting ${activeSlot === 'device_a' ? 'Device A' : 'Device B'})`;
+        }
+        const loginHeading = document.getElementById('heading-login-form');
+        if (loginHeading) {
+            loginHeading.textContent = `Login to ${activeSlot === 'device_a' ? 'Device A' : 'Device B'}`;
+        }
+
+        // 6. Bind freshly rendered card buttons
+        this._bindCardActions();
     }
 
     async handle1ClickDemo() {
@@ -487,7 +554,7 @@ export class AuthView {
         if (res.status === 401 && res.data?.error?.code === 'TOKEN_REVOKED') {
             showToast('🛡️ Replay Detection Triggered! 401 TOKEN_REVOKED. Compromised family destroyed.', 'error', 4500);
             // Invalidate the attacked slot locally
-            sessionStore.removeSession(replay.deviceSlot);
+            sessionStore.clearSession(replay.deviceSlot);
             sessionStore.clearReplayBuffer();
         } else {
             showToast(`Replay attack unexpected response: status ${res.status}`, 'info');
@@ -499,7 +566,7 @@ export class AuthView {
         if (session?.refreshToken) {
             await logout(session.refreshToken);
         }
-        sessionStore.removeSession(slot);
+        sessionStore.clearSession(slot);
         showToast(`Logged out from ${slot}`, 'info');
     }
 

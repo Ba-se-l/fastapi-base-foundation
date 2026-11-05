@@ -8,9 +8,13 @@ export function decodeJwt(token) {
         const parts = token.split('.');
         if (parts.length < 2) return null;
         
-        // Base64URL to Base64
+        // Base64URL to Base64 with padding
         const base64Url = parts[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        while (base64.length % 4 !== 0) {
+            base64 += '=';
+        }
+
         const jsonPayload = decodeURIComponent(
             atob(base64)
                 .split('')
